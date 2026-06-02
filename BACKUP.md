@@ -53,7 +53,7 @@ wget https://dl.min.io/client/mc/release/linux-amd64/mc
 chmod +x mc
 
 # 配置 MinIO 别名
-mc alias set ragsystem http://localhost:9000 minioadmin minioadmin123
+mc alias set ragsystem http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
 
 # 每日增量镜像
 mc mirror ragsystem/rag-documents /backup/minio/rag-documents/
