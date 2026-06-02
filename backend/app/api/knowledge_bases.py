@@ -204,6 +204,7 @@ async def add_kb_permission(
     kb_id: str, data: KBPermissionCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(require_role("SuperAdmin", "Admin")),
 ):
     perm = KnowledgeBasePermission(knowledge_base_id=kb_id, **data.model_dump())
     db.add(perm)
@@ -217,6 +218,7 @@ async def delete_kb_permission(
     kb_id: str, perm_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(require_role("SuperAdmin", "Admin")),
 ):
     result = await db.execute(
         select(KnowledgeBasePermission).where(
@@ -250,6 +252,7 @@ async def add_user_override(
     kb_id: str, data: UserOverrideCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(require_role("SuperAdmin", "Admin")),
 ):
     override = UserKBOverride(knowledge_base_id=kb_id, **data.model_dump())
     db.add(override)
@@ -263,6 +266,7 @@ async def delete_user_override(
     kb_id: str, override_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(require_role("SuperAdmin", "Admin")),
 ):
     result = await db.execute(
         select(UserKBOverride).where(

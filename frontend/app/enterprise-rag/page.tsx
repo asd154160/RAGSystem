@@ -54,8 +54,8 @@ function EnterpriseRagInner() {
 
   const loadKBs = async () => {
     try {
-      const data = await apiGet<{id:string;name:string;type:string}[]>("/api/knowledge-bases");
-      setKbList(data.filter(k => k.type === "enterprise"));
+      const data = await apiGet<{id:string;name:string;type:string}[]>("/api/knowledge-bases/accessible");
+      setKbList(data);
     } catch {}
   };
 
