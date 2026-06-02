@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, Bot, User, Loader2, Database, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ChatMessage, RagSource } from "@/types";
 import ThinkBlock, { parseThinkBlocks } from "./think-block";
 
@@ -14,7 +15,7 @@ function MessageContent({ content }: { content: string }) {
         block.type === "think" ? (
           <ThinkBlock key={i} content={block.content} />
         ) : (
-          <ReactMarkdown key={i}>{block.content}</ReactMarkdown>
+          <ReactMarkdown key={i} remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
         )
       )}
     </div>
