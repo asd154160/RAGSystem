@@ -36,7 +36,7 @@ async def create_kb(
     data: KnowledgeBaseCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _: None = Depends(require_role("SuperAdmin", "Admin", "KBAdmin")),
+    _: None = Depends(require_role("SuperAdmin", "Admin")),
 ):
     existing = await db.execute(select(KnowledgeBase).where(KnowledgeBase.name == data.name))
     if existing.scalar_one_or_none():
@@ -76,7 +76,7 @@ async def update_kb(
     kb_id: str, data: KnowledgeBaseUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _: None = Depends(require_role("SuperAdmin", "Admin", "KBAdmin")),
+    _: None = Depends(require_role("SuperAdmin", "Admin")),
 ):
     result = await db.execute(
         select(KnowledgeBase)

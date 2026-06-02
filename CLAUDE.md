@@ -34,7 +34,6 @@ docker compose logs worker                   # Worker 日志
 |------|------|------|
 | superadmin | admin123 | SuperAdmin（已开个人RAG） |
 | admin | admin123 | Admin |
-| kbadmin | kbadmin123 | KBAdmin |
 | reviewer | reviewer123 | Reviewer |
 | user | user123 | User |
 | userin | userin123 | userin（个人RAG专用角色） |
