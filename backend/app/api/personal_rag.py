@@ -4,7 +4,7 @@ import uuid
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, delete as sql_delete, text
@@ -68,7 +68,7 @@ async def get_personal_kb(
     current_user: User = Depends(get_current_user),
 ):
     if not current_user.personal_rag_enabled:
-        raise HTTPException(status_code=403, detail="个人RAG功能未开启")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="个人RAG功能未开启")
     kb = await _get_or_create_personal_kb(db, current_user)
     doc_count_result = await db.execute(
         text("SELECT COUNT(*) FROM documents WHERE knowledge_base_id = :kid"),
@@ -94,7 +94,7 @@ async def update_personal_kb(
     current_user: User = Depends(get_current_user),
 ):
     if not current_user.personal_rag_enabled:
-        raise HTTPException(status_code=403, detail="个人RAG功能未开启")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="个人RAG功能未开启")
     kb = await _get_or_create_personal_kb(db, current_user)
     if data.name is not None:
         kb.name = data.name
@@ -227,7 +227,7 @@ async def upload_personal_document(
     current_user: User = Depends(get_current_user),
 ):
     if not current_user.personal_rag_enabled:
-        raise HTTPException(status_code=403, detail="个人RAG功能未开启")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="个人RAG功能未开启")
 
     ext = (file.filename or "").rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -298,7 +298,7 @@ async def list_personal_documents(
     current_user: User = Depends(get_current_user),
 ):
     if not current_user.personal_rag_enabled:
-        raise HTTPException(status_code=403, detail="个人RAG功能未开启")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="个人RAG功能未开启")
     kb = await _get_or_create_personal_kb(db, current_user)
 
     result = await db.execute(
@@ -332,7 +332,7 @@ async def get_personal_document(
     current_user: User = Depends(get_current_user),
 ):
     if not current_user.personal_rag_enabled:
-        raise HTTPException(status_code=403, detail="个人RAG功能未开启")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="个人RAG功能未开启")
     kb = await _get_or_create_personal_kb(db, current_user)
 
     result = await db.execute(
@@ -342,7 +342,7 @@ async def get_personal_document(
     )
     doc = result.scalar_one_or_none()
     if not doc:
-        raise HTTPException(status_code=404, detail="文档不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
 
     return {
         "id": doc.id,
@@ -374,7 +374,7 @@ async def get_personal_document_chunks(
     current_user: User = Depends(get_current_user),
 ):
     if not current_user.personal_rag_enabled:
-        raise HTTPException(status_code=403, detail="个人RAG功能未开启")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="个人RAG功能未开启")
     kb = await _get_or_create_personal_kb(db, current_user)
 
     from app.db.models.chunk import Chunk
@@ -382,7 +382,7 @@ async def get_personal_document_chunks(
         select(Document.id).where(Document.id == doc_id, Document.knowledge_base_id == kb.id)
     )
     if not doc_result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="文档不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
 
     result = await db.execute(
         select(Chunk)
@@ -413,7 +413,7 @@ async def preview_personal_document(
     current_user: User = Depends(get_current_user),
 ):
     if not current_user.personal_rag_enabled:
-        raise HTTPException(status_code=403, detail="个人RAG功能未开启")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="个人RAG功能未开启")
     kb = await _get_or_create_personal_kb(db, current_user)
 
     result = await db.execute(
@@ -423,7 +423,7 @@ async def preview_personal_document(
     )
     doc = result.scalar_one_or_none()
     if not doc or not doc.versions:
-        raise HTTPException(status_code=404, detail="文档不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
 
     latest = doc.versions[0]
     url = minio_service.get_presigned_url(latest.file_path, expires=3600)
@@ -441,7 +441,7 @@ async def update_personal_document(
     current_user: User = Depends(get_current_user),
 ):
     if not current_user.personal_rag_enabled:
-        raise HTTPException(status_code=403, detail="个人RAG功能未开启")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="个人RAG功能未开启")
     kb = await _get_or_create_personal_kb(db, current_user)
 
     result = await db.execute(
@@ -449,7 +449,7 @@ async def update_personal_document(
     )
     doc = result.scalar_one_or_none()
     if not doc:
-        raise HTTPException(status_code=404, detail="文档不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
 
     if data.title is not None:
         doc.title = data.title
@@ -465,15 +465,16 @@ async def delete_personal_document(
     current_user: User = Depends(get_current_user),
 ):
     if not current_user.personal_rag_enabled:
-        raise HTTPException(status_code=403, detail="个人RAG功能未开启")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="个人RAG功能未开启")
     kb = await _get_or_create_personal_kb(db, current_user)
 
     result = await db.execute(
         select(Document.id).where(Document.id == doc_id, Document.knowledge_base_id == kb.id)
     )
     if not result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="文档不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
 
+    # Clean up MinIO files (raw query avoids ORM FK management)
     path_result = await db.execute(
         text("SELECT file_path FROM document_versions WHERE document_id = :did"),
         {"did": doc_id},
@@ -484,11 +485,13 @@ async def delete_personal_document(
         except Exception:
             pass
 
+    # Clean up Milvus vectors
     try:
         milvus_service.delete_by_document_id(doc_id)
     except Exception:
         pass
 
+    # Bypass ORM, DB CASCADE handles versions/tasks/chunks
     await db.execute(sql_delete(Document).where(Document.id == doc_id))
     await db.commit()
 
@@ -500,7 +503,7 @@ async def retry_personal_document(
     current_user: User = Depends(get_current_user),
 ):
     if not current_user.personal_rag_enabled:
-        raise HTTPException(status_code=403, detail="个人RAG功能未开启")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="个人RAG功能未开启")
     kb = await _get_or_create_personal_kb(db, current_user)
 
     result = await db.execute(
@@ -510,11 +513,11 @@ async def retry_personal_document(
     )
     doc = result.scalar_one_or_none()
     if not doc or not doc.versions:
-        raise HTTPException(status_code=404, detail="文档不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
 
     version = doc.versions[0]
-    if version.status not in (DocStatus.failed,):
-        raise HTTPException(status_code=400, detail="只有失败的文档才能重试")
+    if version.status != DocStatus.failed:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有失败的文档才能重试")
 
     version.status = DocStatus.uploaded
     doc.status = DocStatus.uploaded
