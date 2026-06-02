@@ -28,6 +28,15 @@ SYSTEM_PROMPT = """你是一个企业知识库问答助手。请根据提供的�
 
 如果文档片段不足以回答问题，请明确说明无法回答，不要编造信息。"""
 
+FALLBACK_SYSTEM_PROMPT = """你是一个企业知识库问答助手。当前知识库中未检索到相关内容，请基于你的自身知识回答用户问题。
+
+回答规范：
+1. 先给出明确结论
+2. 列出依据和详细分析
+3. 如有风险或注意事项，也需说明
+
+注意：你需要在回答开头注明"知识库中未检索到相关内容，以下回答基于大模型自身知识，仅供参考。"""
+
 
 class RAGState(TypedDict):
     question: str
@@ -107,8 +116,6 @@ def _make_confidence_node():
 
 
 def _should_reject(state: RAGState) -> str:
-    if state["low_confidence"] and not state.get("reranked_results"):
-        return "reject"
     return "expand"
 
 
@@ -138,7 +145,16 @@ def _make_generate_node():
     """保留 generate 节点供非流式调用使用"""
     async def generate_node(state: RAGState) -> dict:
         if not state.get("context"):
-            return {"answer": "未找到相关文档。"}
+            messages = [
+                {"role": "system", "content": FALLBACK_SYSTEM_PROMPT},
+                {"role": "user", "content": f"用户问题：{state['question']}"},
+            ]
+            try:
+                answer = await llm_service.generate(messages)
+            except Exception as e:
+                logger.error(f"LLM generation failed: {e}")
+                answer = f"答案生成失败：{e}"
+            return {"answer": answer, "sources": [], "low_confidence": True}
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"参考资料：\n{state['context']}\n\n用户问题：{state['question']}"},
@@ -263,37 +279,35 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
         low_confidence = final_state.get("low_confidence", False)
         context = final_state.get("context", "")
 
-        # If reject or no context, yield static answer
-        if not context:
-            if low_confidence:
-                increment_counter("rag_query_low_confidence")
-            answer = final_state.get("answer", "")
-            if not answer:
-                answer = "当前知识库中没有找到与该问题相关的可靠依据。建议您换个问法重新提问。"
-            yield {"type": "answer", "content": answer}
+        # If low confidence or no context, fall back to LLM's own knowledge
+        if low_confidence or not context:
+            increment_counter("rag_query_low_confidence")
+            messages = [
+                {"role": "system", "content": FALLBACK_SYSTEM_PROMPT},
+                {"role": "user", "content": f"用户问题：{question}"},
+            ]
+            prefix = "知识库中未检索到相关内容，以下回答基于大模型自身知识，仅供参考。\n\n"
+            async for chunk in llm_service.generate_stream(messages):
+                if prefix:
+                    yield {"type": "answer", "content": prefix}
+                    prefix = ""
+                yield {"type": "answer", "content": chunk}
             yield {"type": "sources", "content": sources}
             yield {"type": "done", "low_confidence": True}
             record_timing("rag_total_ms", (__import__("time").time() - t_start) * 1000)
             return
 
-        # Stream LLM generation token by token
+        # Stream LLM generation with KB context (high confidence)
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"参考资料：\n{context}\n\n用户问题：{question}"},
         ]
 
-        prefix = "以下内容基于低置信度检索结果，仅供参考。\n\n" if low_confidence else ""
-        if low_confidence:
-            increment_counter("rag_query_low_confidence")
-
         async for chunk in llm_service.generate_stream(messages):
-            if prefix:
-                yield {"type": "answer", "content": prefix}
-                prefix = ""
             yield {"type": "answer", "content": chunk}
 
         yield {"type": "sources", "content": sources}
-        yield {"type": "done", "low_confidence": low_confidence}
+        yield {"type": "done", "low_confidence": False}
         record_timing("rag_total_ms", (__import__("time").time() - t_start) * 1000)
 
     except Exception as e:
