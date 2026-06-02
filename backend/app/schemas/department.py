@@ -16,6 +16,18 @@ class DepartmentUpdate(BaseModel):
     is_active: bool | None = None
 
 
+class MemberBrief(BaseModel):
+    id: str
+    username: str
+    email: str
+
+    model_config = {"from_attributes": True}
+
+
+class MemberAdd(BaseModel):
+    user_id: str
+
+
 class DepartmentResponse(BaseModel):
     id: str
     name: str
@@ -23,9 +35,7 @@ class DepartmentResponse(BaseModel):
     parent_id: str | None
     is_active: bool
     created_at: datetime
+    members: list[MemberBrief] = []
+    user_count: int = 0  # direct users via department_id FK
 
     model_config = {"from_attributes": True}
-
-
-class MemberAdd(BaseModel):
-    user_id: str

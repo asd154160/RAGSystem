@@ -8,6 +8,7 @@ import { apiGet } from "@/lib/api";
 interface UserInfo {
   id: string;
   username: string;
+  department_id: string | null;
   roles: string[];
   permissions: string[];
   personal_rag_enabled: boolean;
@@ -39,11 +40,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       router.push("/login");
       return;
     }
-    apiGet<{ id: string; username: string; personal_rag_enabled: boolean; roles: { id: string; name: string }[] }>("/api/auth/me")
+    apiGet<{ id: string; username: string; department_id: string | null; personal_rag_enabled: boolean; roles: { id: string; name: string }[] }>("/api/auth/me")
       .then(data => {
         const roleNames = data.roles.map(r => r.name);
         const perms = derivePermissions(roleNames);
-        setUser({ id: data.id, username: data.username, roles: roleNames, permissions: perms, personal_rag_enabled: data.personal_rag_enabled });
+        setUser({ id: data.id, username: data.username, department_id: data.department_id, roles: roleNames, permissions: perms, personal_rag_enabled: data.personal_rag_enabled });
       })
       .catch(() => {})
       .finally(() => setLoading(false));

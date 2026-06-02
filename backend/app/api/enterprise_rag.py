@@ -10,9 +10,10 @@ from sqlalchemy import select
 
 from app.core.security import get_current_user
 from app.db.session import AsyncSession, get_db
-from app.db.models import User, KnowledgeBase
+from app.db.models import User
 from app.db.models.conversation import ChatSession, ChatMessage, RagAnswerSource
 from app.services.retrieval_service import get_rag_configs
+from app.services.kb_access import get_accessible_kb_ids
 from app.services import audit_service
 from app.services.langgraph_workflow import run_rag_stream
 
@@ -29,14 +30,11 @@ class ChatRequest(BaseModel):
 
 
 async def _resolve_kb_ids(db: AsyncSession, current_user: User, kb_ids: list[str] | None) -> list[str]:
+    """解析用户有权查询的企业 KB。用户指定 KB 时仅保留有权限的，未指定时返回全部可访问 KB。"""
+    accessible = await get_accessible_kb_ids(current_user, "query", db)
     if kb_ids:
-        return kb_ids
-    kb_result = await db.execute(
-        select(KnowledgeBase).where(
-            KnowledgeBase.type == "enterprise", KnowledgeBase.is_active == True,
-        )
-    )
-    return [kb.id for kb in kb_result.scalars().all()]
+        return [kb_id for kb_id in kb_ids if kb_id in accessible]
+    return accessible
 
 
 async def _save_session(
