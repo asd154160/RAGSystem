@@ -268,11 +268,28 @@ RAGSystem/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/enterprise-rag/chat/stream` | 企业 RAG 流式问答（SSE） |
-| POST | `/api/personal-rag/chat/stream` | 个人 RAG 流式问答（SSE） |
+| POST | `/api/enterprise-rag/chat/stream` | 企业 RAG 流式问答（SSE，支持多轮对话） |
+| POST | `/api/personal-rag/chat/stream` | 个人 RAG 流式问答（SSE，支持多轮对话） |
 | GET | `/api/sessions?kb_type=enterprise`&#124;`personal` | 会话列表 |
 | GET/DELETE | `/api/sessions/{id}` | 会话详情（含消息） / 删除 |
 | POST | `/api/messages/{id}/feedback` | 消息反馈（like/dislike） |
+
+### 个人 RAG 独立端点
+
+个人 RAG 无需审核流程，KB 首次使用时自动创建，上传文档后直接解析→发布→入库。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/personal-rag/kb` | 获取个人 KB，不存在则自动创建 |
+| PATCH | `/api/personal-rag/kb` | 更新 KB 名称/描述 |
+| POST | `/api/personal-rag/documents/upload` | 上传文档（同企业 RAG 6 种格式，≤100MB） |
+| GET | `/api/personal-rag/documents` | 文档列表 |
+| GET | `/api/personal-rag/documents/{id}` | 文档详情（含版本信息） |
+| GET | `/api/personal-rag/documents/{id}/chunks` | Chunk 列表 |
+| GET | `/api/personal-rag/documents/{id}/preview` | 文件预览 URL（预签名 1h） |
+| PATCH | `/api/personal-rag/documents/{id}` | 更新文档标题 |
+| DELETE | `/api/personal-rag/documents/{id}` | 删除文档（含 MinIO + Milvus 清理） |
+| POST | `/api/personal-rag/documents/{id}/retry` | 重试失败文档 |
 
 ### 模型配置、审计、缺口、评测、监控
 
@@ -304,18 +321,24 @@ Worker 异步解析（txt/md/pdf/docx/xlsx/pptx）
      ↓
 Parent-Child Chunking（700/1600 tokens，chunk_hash 指纹）
      ↓
-pending_review → Reviewer 审核
-     ├─ reject → 打回
-     └─ approve → 发布（is_active=true）
-                      ↓
-              Worker Embedding（bge-m3，hash 匹配复用旧向量）
-                      ↓
-              Contextual Retrieval（若启用：LLM 生成上下文描述）
-                      ↓
-              Milvus 向量入库 → published → 可检索
+  ┌─ kb.type == "personal" → 直接发布（is_active=true）
+  │         ↓
+  │   Worker Embedding → Milvus 入库 → published → 可检索
+  │
+  └─ kb.type == "enterprise" → pending_review → Reviewer 审核
+            ├─ reject → 打回
+            └─ approve → 发布（is_active=true）
+                              ↓
+                      Worker Embedding（bge-m3，hash 匹配复用旧向量）
+                              ↓
+                      Contextual Retrieval（若启用：LLM 生成上下文描述）
+                              ↓
+                      Milvus 向量入库 → published → 可检索
 ```
 
-关键特性：**增量索引** — 文档更新时仅对内容变更的 chunk 做 embedding，hash 未变的 chunk 复用旧向量，大幅减少 embedding 耗时。
+关键特性：
+- **增量索引** — 文档更新时仅对内容变更的 chunk 做 embedding，hash 未变的 chunk 复用旧向量，大幅减少 embedding 耗时
+- **个人文档自动发布** — 个人知识库的文档解析完成后跳过审核，直接发布并创建 embedding 任务
 
 ---
 
@@ -506,6 +529,7 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆�
 | 检索 | 置信度检测 | score < 0.45 → 低置信度 + 知识缺口记录 |
 | 检索 | Parent Chunk 回填 | 子块检索结果自动加载父块上下文 |
 | 问答 | 流式 SSE | token-by-token 实时输出，5 种事件类型 |
+| 问答 | 多轮对话 | 自动加载最近 10 条会话历史，支持连续追问 |
 | 问答 | Think Block | `<think>` 思考过程自动折叠，可展开查看 |
 | 问答 | 来源引用 | `[编号] 文档名` 带 hover 详情卡片 |
 | 权限 | 系统 RBAC | 5 角色 × 9 权限，前后端双重检查 |
