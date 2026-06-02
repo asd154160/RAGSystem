@@ -242,6 +242,7 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
     }
 
     try:
+        t_start = __import__("time").time()
         increment_counter("rag_query_total")
 
         node_start = {}
@@ -272,6 +273,7 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
             yield {"type": "answer", "content": answer}
             yield {"type": "sources", "content": sources}
             yield {"type": "done", "low_confidence": True}
+            record_timing("rag_total_ms", (__import__("time").time() - t_start) * 1000)
             return
 
         # Stream LLM generation token by token
@@ -292,6 +294,7 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
 
         yield {"type": "sources", "content": sources}
         yield {"type": "done", "low_confidence": low_confidence}
+        record_timing("rag_total_ms", (__import__("time").time() - t_start) * 1000)
 
     except Exception as e:
         logger.error(f"LangGraph workflow error: {e}")

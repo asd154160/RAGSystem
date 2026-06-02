@@ -5,6 +5,15 @@ import AdminLayout from "@/components/layout/admin-layout";
 import { apiGet, apiPost } from "@/lib/api";
 import { Activity, Clock, AlertTriangle, Zap, RotateCw } from "lucide-react";
 
+const NODE_LABELS: Record<string, string> = {
+  rag_rewrite_ms: "查询改写",
+  rag_retrieve_ms: "混合检索",
+  rag_rerank_ms: "重排序",
+  rag_check_confidence_ms: "置信度检测",
+  rag_expand_ms: "上下文扩展",
+  rag_total_ms: "总耗时",
+};
+
 interface Metrics {
   uptime_hours: number;
   counters: Record<string, number>;
@@ -45,27 +54,33 @@ export default function MonitorPage() {
 
         {/* Metric Cards */}
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4 mb-8">
-          <Card icon={<Zap size={20} />} label="今日调用" value={c.rag_query || 0} color="blue" />
-          <Card icon={<Clock size={20} />} label="平均延迟" value={`${a.rag_chat_total_avg_ms?.toFixed(0) || "-"} ms`} color="green" />
-          <Card icon={<AlertTriangle size={20} />} label="低置信度" value={c.low_confidence || 0} color="orange" />
-          <Card icon={<Activity size={20} />} label="错误数" value={c.llm_error || 0} color="red" />
+          <Card icon={<Zap size={20} />} label="今日调用" value={c.rag_query_total || 0} color="blue" />
+          <Card icon={<Clock size={20} />} label="平均延迟" value={`${a.rag_total_ms_avg_ms?.toFixed(0) || "-"} ms`} color="green" />
+          <Card icon={<AlertTriangle size={20} />} label="低置信度" value={c.rag_query_low_confidence || 0} color="orange" />
+          <Card icon={<Activity size={20} />} label="错误数" value={c.rag_query_error || 0} color="red" />
         </div>
 
         {/* Timing Details */}
         <div className="rounded-lg border bg-white p-6">
           <h3 className="mb-4 text-sm font-medium text-gray-700">耗时指标</h3>
           <div className="space-y-3">
-            {Object.entries(a).filter(([k]) => k.endsWith("_avg_ms")).map(([key, val]) => (
-              <div key={key} className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">{key.replace("_avg_ms", "").replace(/_/g, " ")}</span>
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-medium">{val} ms</span>
-                  <div className="w-32 h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(Number(val) / 50, 100)}%` }} />
+            {Object.entries(a).filter(([k]) => k.endsWith("_avg_ms")).map(([key, val]) => {
+              const label = NODE_LABELS[key.replace("_avg_ms", "")] || key.replace("_avg_ms", "").replace(/_/g, " ");
+              const p95Key = key.replace("_avg_ms", "_p95_ms");
+              const p95 = a[p95Key];
+              return (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">{label}</span>
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-medium">{val} ms</span>
+                    {p95 !== undefined && <span className="text-xs text-gray-400">p95: {p95} ms</span>}
+                    <div className="w-32 h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(Number(val) / 50, 100)}%` }} />
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {Object.keys(a).filter(k => k.endsWith("_avg_ms")).length === 0 && (
               <p className="text-sm text-gray-400">暂无数据（触发几次 RAG 问答后可见）</p>
             )}
