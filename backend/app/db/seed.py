@@ -20,10 +20,6 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "manage_user", "manage_department", "manage_knowledge_base",
         "manage_model_config", "view_audit_logs", "query_knowledge_base",
     ],
-    "KBAdmin": [
-        "manage_knowledge_base", "upload_document",
-        "review_document", "publish_document", "query_knowledge_base",
-    ],
     "Reviewer": [
         "review_document", "publish_document", "query_knowledge_base",
     ],
@@ -79,7 +75,7 @@ def seed():
         default_users = [
             ("superadmin", "superadmin@ragsystem.local", "admin123", "SuperAdmin", True),
             ("admin",      "admin@ragsystem.local",      "admin123", "Admin",      False),
-            ("kbadmin",    "kbadmin@ragsystem.local",    "kbadmin123", "KBAdmin",   False),
+
             ("reviewer",   "reviewer@ragsystem.local",   "reviewer123", "Reviewer",  False),
             ("user",       "user@ragsystem.local",       "user123",   "User",       False),
             ("userin",     "userin@ragsystem.local",     "userin123", "userin",     True),
