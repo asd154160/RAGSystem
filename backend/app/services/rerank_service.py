@@ -10,13 +10,18 @@ _model = None
 _available = False
 
 
+MODEL_PATH = "/app/models/bge-reranker-v2-m3"
+
+
 def _load_model():
     global _model, _available
     if _model is not None:
         return
     try:
         from FlagEmbedding import FlagReranker
-        _model = FlagReranker("BAAI/bge-reranker-v2-m3", use_fp16=True)
+        import os
+        path = os.environ.get("RERANKER_PATH", MODEL_PATH)
+        _model = FlagReranker(path, use_fp16=True)
         _available = True
         logger.info("bge-reranker-v2-m3 loaded successfully")
     except Exception as e:

@@ -504,7 +504,7 @@ async def index_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("manage_knowledge_base")),
 ):
-    """为已发布文档创建向量入库任务（需本地运行 index_worker 处理）"""
+    """为已发布文档创建向量入库任务（Docker worker 自动处理）"""
     result = await db.execute(
         select(Document).options(selectinload(Document.versions)).where(Document.id == doc_id)
     )
@@ -533,7 +533,7 @@ async def index_document(
     db.add(task)
     await db.commit()
 
-    return {"message": "索引任务已创建，请确保本地 index_worker 正在运行", "task_id": task.id}
+    return {"message": "索引任务已创建，worker 将自动处理", "task_id": task.id}
 
 
 @router.patch("/{doc_id}")

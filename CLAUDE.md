@@ -40,13 +40,13 @@ docker compose logs worker                   # Worker 日志
 
 ## 技术栈
 
-后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | 缓存/限流 Redis | Embedding bge-m3（本地） | Rerank bge-reranker-v2-m3（本地） | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
+后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | 缓存/限流 Redis | Embedding bge-m3（Docker 内运行） | Rerank bge-reranker-v2-m3（Docker 内运行） | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
 
 ## 关键约定
 
 - **Docker volume 挂载**：backend 和 frontend 都挂载源码目录，代码改动即时生效（前端新增页面需 `docker compose restart frontend` 让 Next.js 重新扫描路由）
 - **种子数据**：`docker compose exec backend PYTHONPATH=/app python app/db/seed.py`（首次运行，会清库重建；已有数据时跳过）
-- **向量入库**：Docker 不含 torch，需本地 `cd backend && python -m app.services.index_worker`
+- **向量入库**：Docker worker 自动处理 parse + chunk + embed 全流程，无需本地运行
 - **数据库迁移**：新增 DB 列需手动执行 SQL（如 `docker compose exec postgres psql -U raguser -d ragsystem -c "ALTER TABLE ..."`）
 - **LLM 配置**：DB 中 `model_configs` 表的 `is_default=true` 模型优先于 `.env`。无 DB 配置时回退 `.env` 的 `LLM_API_KEY`
 

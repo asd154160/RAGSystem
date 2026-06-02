@@ -115,10 +115,10 @@ export default function DocumentsPage() {
   }
 
   async function handleIndex(docId: string) {
-    if (!confirm("确认重建索引？将重新生成向量并写入Milvus。\n\n请确保本地 index_worker 正在运行：\ncd backend && python -m app.services.index_worker")) return;
+    if (!confirm("确认重建索引？将重新生成向量并写入Milvus。")) return;
     try {
       await apiPost(`/api/documents/${docId}/index`);
-      alert("索引任务已创建，请确保本地 index_worker 正在处理。");
+      alert("索引任务已创建，worker 将自动处理。");
     } catch (err) { console.error(err); }
   }
 

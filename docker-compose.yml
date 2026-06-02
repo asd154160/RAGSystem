@@ -119,6 +119,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ./models:/app/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -145,6 +146,7 @@ services:
       LOG_LEVEL: INFO
     volumes:
       - ./backend:/app
+      - ./models:/app/models
     depends_on:
       postgres:
         condition: service_healthy
