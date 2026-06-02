@@ -68,11 +68,11 @@ export function useAuth() {
 // Role-to-permission mapping matching seed.py
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   SuperAdmin: ["manage_user", "manage_department", "manage_knowledge_base", "upload_document", "review_document", "publish_document", "query_knowledge_base", "manage_model_config", "view_audit_logs"],
-  Admin: ["manage_user", "manage_department", "manage_knowledge_base", "upload_document", "review_document", "publish_document", "query_knowledge_base", "view_audit_logs"],
+  Admin: ["manage_user", "manage_department", "manage_knowledge_base", "manage_model_config", "view_audit_logs", "query_knowledge_base"],
   KBAdmin: ["manage_knowledge_base", "upload_document", "review_document", "publish_document", "query_knowledge_base"],
   Reviewer: ["review_document", "publish_document", "query_knowledge_base"],
-  User: ["query_knowledge_base"],
-  userin: ["query_knowledge_base"],
+  User: ["upload_document", "query_knowledge_base"],
+  userin: ["upload_document", "query_knowledge_base"],
 };
 
 function derivePermissions(roles: string[]): string[] {
