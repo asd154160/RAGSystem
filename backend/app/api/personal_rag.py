@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, delete as sql_delete, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.core.security import get_current_user
@@ -29,7 +30,7 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 
 
 async def _get_or_create_personal_kb(db: AsyncSession, current_user: User) -> KnowledgeBase:
-    """获取当前用户的个人知识库，不存在则自动创建"""
+    """获取当前用户的个人知识库，不存在则自动创建（并发安全）"""
     result = await db.execute(
         select(KnowledgeBase).where(
             KnowledgeBase.type == "personal",
@@ -38,16 +39,29 @@ async def _get_or_create_personal_kb(db: AsyncSession, current_user: User) -> Kn
         ).limit(1)
     )
     kb = result.scalars().first()
-    if not kb:
-        kb = KnowledgeBase(
-            name=f"{current_user.username}的个人知识库",
-            description="个人知识库",
-            type="personal",
-            owner_user_id=current_user.id,
-        )
-        db.add(kb)
+    if kb:
+        return kb
+
+    kb = KnowledgeBase(
+        name=f"{current_user.username}的个人知识库",
+        description="个人知识库",
+        type="personal",
+        owner_user_id=current_user.id,
+    )
+    db.add(kb)
+    try:
         await db.commit()
         await db.refresh(kb)
+    except IntegrityError:
+        await db.rollback()
+        result = await db.execute(
+            select(KnowledgeBase).where(
+                KnowledgeBase.type == "personal",
+                KnowledgeBase.owner_user_id == current_user.id,
+                KnowledgeBase.is_active == True,
+            ).limit(1)
+        )
+        kb = result.scalars().first()
     return kb
 
 
