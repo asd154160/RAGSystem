@@ -10,23 +10,38 @@ from app.schemas.department import DepartmentCreate, DepartmentUpdate, Departmen
 router = APIRouter(prefix="/api/departments", tags=["departments"])
 
 
-async def _enrich_dept(db: AsyncSession, dept: Department) -> dict:
-    """Enrich department with member details and user count."""
-    # Members via department_members M2M
-    member_briefs = [
-        MemberBrief(id=u.id, username=u.username, email=u.email)
-        for u in (dept.members or [])
-    ]
-    # Direct user count via User.department_id FK
-    user_count = await db.scalar(
-        select(func.count(User.id)).where(User.department_id == dept.id)
-    )
-    return {
-        "id": dept.id, "name": dept.name, "description": dept.description,
-        "parent_id": dept.parent_id, "is_active": dept.is_active,
-        "created_at": dept.created_at,
-        "members": member_briefs, "user_count": user_count or 0,
-    }
+async def _build_dept_dict(db: AsyncSession, dept: Department) -> dict:
+    """单部门构建，内部委托批量方法（避免 N+1）。"""
+    enriched = await _enrich_depts(db, [dept])
+    return enriched[0]
+
+
+async def _enrich_depts(db: AsyncSession, depts: list[Department]) -> list[dict]:
+    """批量构建部门响应，一次 GROUP BY 查询所有 user_count。"""
+    dept_ids = [d.id for d in depts]
+
+    user_counts = {}
+    if dept_ids:
+        rows = await db.execute(
+            select(User.department_id, func.count(User.id))
+            .where(User.department_id.in_(dept_ids))
+            .group_by(User.department_id)
+        )
+        user_counts = {row[0]: row[1] for row in rows.fetchall()}
+
+    results = []
+    for d in depts:
+        member_briefs = [
+            MemberBrief(id=u.id, username=u.username, email=u.email)
+            for u in (d.members or [])
+        ]
+        results.append({
+            "id": d.id, "name": d.name, "description": d.description,
+            "parent_id": d.parent_id, "is_active": d.is_active,
+            "created_at": d.created_at,
+            "members": member_briefs, "user_count": user_counts.get(d.id, 0),
+        })
+    return results
 
 
 @router.get("", response_model=list[DepartmentResponse])
@@ -41,7 +56,7 @@ async def list_departments(
         ).order_by(Department.created_at)
     )
     depts = result.scalars().all()
-    return [DepartmentResponse(**(await _enrich_dept(db, d))) for d in depts]
+    return [DepartmentResponse(**d) for d in await _enrich_depts(db, depts)]
 
 
 @router.post("", response_model=DepartmentResponse, status_code=status.HTTP_201_CREATED)
@@ -59,7 +74,7 @@ async def create_department(
     db.add(dept)
     await db.commit()
     await db.refresh(dept)
-    return DepartmentResponse(**(await _enrich_dept(db, dept)))
+    return DepartmentResponse(**(await _build_dept_dict(db, dept)))
 
 
 @router.get("/{dept_id}", response_model=DepartmentResponse)
@@ -77,7 +92,7 @@ async def get_department(
     dept = result.scalar_one_or_none()
     if not dept:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
-    return DepartmentResponse(**(await _enrich_dept(db, dept)))
+    return DepartmentResponse(**(await _build_dept_dict(db, dept)))
 
 
 @router.patch("/{dept_id}", response_model=DepartmentResponse)
@@ -104,7 +119,7 @@ async def update_department(
 
     await db.commit()
     await db.refresh(dept)
-    return DepartmentResponse(**(await _enrich_dept(db, dept)))
+    return DepartmentResponse(**(await _build_dept_dict(db, dept)))
 
 
 @router.delete("/{dept_id}", status_code=status.HTTP_204_NO_CONTENT)
