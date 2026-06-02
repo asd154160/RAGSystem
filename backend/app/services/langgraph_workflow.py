@@ -208,7 +208,7 @@ def get_rag_graph_no_generate():
 
 async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
                          enable_rewrite: bool = True, enable_rerank: bool = True,
-                         rerank_top_n: int = 5, score_threshold: float = 0.3,
+                         rerank_top_n: int = 6, score_threshold: float = 0.45,
                          user_id: str = "") -> AsyncGenerator[dict, None]:
     """流式 RAG 工作流：graph 处理检索 → LLM 逐 token 流式生成"""
     graph = get_rag_graph_no_generate()

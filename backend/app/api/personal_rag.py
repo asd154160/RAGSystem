@@ -90,8 +90,8 @@ async def chat_stream(
     kb_configs = await get_rag_configs(kb_ids)
     enable_rerank = any(cfg.enable_rerank for cfg in kb_configs.values()) if kb_configs else True
     enable_rewrite = any(cfg.enable_query_rewrite for cfg in kb_configs.values()) if kb_configs else False
-    rerank_top_n = max((cfg.rerank_top_n for cfg in kb_configs.values()), default=5)
-    score_threshold = min((cfg.score_threshold for cfg in kb_configs.values()), default=0.3)
+    rerank_top_n = max((cfg.rerank_top_n for cfg in kb_configs.values()), default=6)
+    score_threshold = min((cfg.score_threshold for cfg in kb_configs.values()), default=0.45)
 
     async def generate():
         if not kb_ids:

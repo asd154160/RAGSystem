@@ -64,12 +64,12 @@ class KnowledgeBaseResponse(BaseModel):
 class RAGConfigRequest(BaseModel):
     chunk_size: int = 700
     chunk_overlap: int = 100
-    parent_chunk_size: int = 2000
-    top_k_vector: int = 10
-    top_k_bm25: int = 10
+    parent_chunk_size: int = 1600
+    top_k_vector: int = 5
+    top_k_bm25: int = 5
     rrf_k: int = 60
-    rerank_top_n: int = 5
-    score_threshold: float = 0.3
+    rerank_top_n: int = 6
+    score_threshold: float = 0.45
     enable_query_rewrite: bool = True
     enable_rerank: bool = True
     enable_contextual_retrieval: bool = False

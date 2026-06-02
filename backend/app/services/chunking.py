@@ -80,7 +80,7 @@ def _sliding_window_split(text: str, chunk_size: int, overlap: int) -> list[str]
     return chunks
 
 
-def _make_parent_chunks(child_chunks: list[Chunk], parent_size: int = 2000, parent_overlap: int = 250) -> list[Chunk]:
+def _make_parent_chunks(child_chunks: list[Chunk], parent_size: int = 1600, parent_overlap: int = 250) -> list[Chunk]:
     """从 child chunks 合并生成 parent chunks"""
     parents = []
     buf = []
@@ -124,7 +124,7 @@ def _make_parent_chunks(child_chunks: list[Chunk], parent_size: int = 2000, pare
     return parents
 
 
-def chunk_blocks(result: ParseResult, child_size: int = 700, child_overlap: int = 100, parent_size: int = 2000, parent_overlap: int = 250) -> ChunkResult:
+def chunk_blocks(result: ParseResult, child_size: int = 700, child_overlap: int = 100, parent_size: int = 1600, parent_overlap: int = 250) -> ChunkResult:
     """对解析结果执行 Parent-Child Chunking"""
     items = _extract_blocks_with_context(result.blocks)
     if not items:

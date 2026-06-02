@@ -238,8 +238,8 @@ async def full_retrieval_pipeline(
     knowledge_base_ids: list[str] | None = None,
     enable_rerank: bool = True,
     enable_parent_expand: bool = True,
-    rerank_top_n: int = 5,
-    score_threshold: float = 0.3,
+    rerank_top_n: int = 6,
+    score_threshold: float = 0.45,
 ) -> dict:
     """
     完整检索链路: hybrid search → rerank → parent chunk expand
