@@ -14,10 +14,12 @@ from app.db.session import async_session
 from app.db.models import Document, DocumentVersion, DocumentProcessingTask, KnowledgeBase
 from app.db.models.document import DocStatus, TaskType, TaskStatus
 from app.db.models.chunk import Chunk
+from app.db.models.rag_config import RAGConfig
 from app.services import minio_service
 from app.services.file_parser import parse_from_bytes
 from app.services.chunking import chunk_blocks
-from app.services import embedding_service, milvus_service
+from app.services import embedding_service, milvus_service, llm_service
+from app.services.contextual_retrieval import generate_chunk_context
 
 logger = logging.getLogger("worker")
 logger.setLevel(logging.INFO)
@@ -153,41 +155,90 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
 
         # 1. 查询 Milvus 中该文档的旧向量
         old_vectors = milvus_service.get_vectors_by_document_id(doc_id)
-        reuse_map = {}  # chunk_hash → embedding
+        reuse_map = {}     # chunk_hash → embedding
+        ctx_reuse_map = {}  # chunk_hash → contextual_text
         if old_vectors:
             old_cids = [v["chunk_id"] for v in old_vectors if v.get("chunk_id")]
             if old_cids:
                 old_chunk_result = await db_session.execute(
-                    select(Chunk.chunk_id, Chunk.chunk_hash).where(Chunk.chunk_id.in_(old_cids))
+                    select(Chunk.chunk_id, Chunk.chunk_hash, Chunk.contextual_text).where(
+                        Chunk.chunk_id.in_(old_cids)
+                    )
                 )
-                cid_to_hash = {r.chunk_id: r.chunk_hash for r in old_chunk_result.fetchall()}
-                for v in old_vectors:
-                    h = cid_to_hash.get(v["chunk_id"])
-                    if h:
-                        reuse_map[h] = v["embedding"]
+                for r in old_chunk_result.fetchall():
+                    for v in old_vectors:
+                        if v["chunk_id"] == r.chunk_id:
+                            reuse_map[r.chunk_hash] = v["embedding"]
+                            if r.contextual_text:
+                                ctx_reuse_map[r.chunk_hash] = r.contextual_text
+                            break
 
         # 2. 删除旧向量
         if old_vectors:
             milvus_service.delete_by_document_id(doc_id)
 
-        # 3. 分离：hash 匹配则复用，否则需要新 embedding
+        # 3. 分离：hash 匹配则复用（embedding + contextual_text），否则需要新 embedding
         reuse_chunks = []
         new_chunks = []
         for c in chunks:
             if c.chunk_hash and c.chunk_hash in reuse_map:
+                if not c.contextual_text and c.chunk_hash in ctx_reuse_map:
+                    c.contextual_text = ctx_reuse_map[c.chunk_hash]
                 reuse_chunks.append(c)
             else:
                 new_chunks.append(c)
+
+        # 3.5 Contextual Retrieval：为缺少上下文的 chunk 生成描述
+        doc_title = "未知文档"
+        enable_ctx = False
+        try:
+            doc_result = await db_session.execute(
+                select(Document).where(Document.id == doc_id)
+            )
+            doc = doc_result.scalar_one_or_none()
+            if doc:
+                doc_title = doc.title
+                rag_result = await db_session.execute(
+                    select(RAGConfig).where(RAGConfig.knowledge_base_id == doc.knowledge_base_id)
+                )
+                rag_cfg = rag_result.scalar_one_or_none()
+                enable_ctx = rag_cfg.enable_contextual_retrieval if rag_cfg else False
+        except Exception:
+            pass
+
+        if enable_ctx and llm_service.is_available():
+            need_ctx = [c for c in chunks if not c.contextual_text]
+            if need_ctx:
+                logger.info(f"Generating context for {len(need_ctx)} chunks...")
+                sem = asyncio.Semaphore(5)
+
+                async def _gen_ctx(c: Chunk):
+                    async with sem:
+                        ctx = await generate_chunk_context(
+                            chunk_text=c.chunk_text,
+                            document_title=doc_title,
+                            section_title=c.section_title,
+                            page_no=c.page_no,
+                            llm_generate=llm_service.generate,
+                        )
+                        c.contextual_text = ctx
+
+                await asyncio.gather(*(_gen_ctx(c) for c in need_ctx))
+                await db_session.commit()
+                logger.info(f"Context generated for {sum(1 for c in need_ctx if c.contextual_text)}/{len(need_ctx)} chunks")
 
         logger.info(
             f"Embedding {len(chunks)} chunks for document version {version.id[:8]}..."
             f" reuse={len(reuse_chunks)} new={len(new_chunks)}"
         )
 
-        # 4. 只对新 chunk 做 embedding
+        # 4. 只对新 chunk 做 embedding（有 contextual_text 则拼在前缀）
         new_embeddings = {}
         if new_chunks:
-            texts = [c.chunk_text for c in new_chunks]
+            texts = [
+                (c.contextual_text + "\n\n" + c.chunk_text) if c.contextual_text else c.chunk_text
+                for c in new_chunks
+            ]
             new_embeddings = dict(zip([c.chunk_id for c in new_chunks], embedding_service.embed_texts(texts)))
 
         # 5. 组装 Milvus 数据（复用 + 新）
