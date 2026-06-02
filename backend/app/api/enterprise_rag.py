@@ -94,6 +94,16 @@ async def chat_stream(
             yield f"event: done\ndata: {json.dumps({'error': '没有可用的知识库'})}\n\n"
             return
 
+        # Fetch conversation history for multi-turn context
+        history = []
+        if data.session_id:
+            hist_result = await db.execute(
+                select(ChatMessage).where(
+                    ChatMessage.session_id == data.session_id
+                ).order_by(ChatMessage.created_at.asc()).limit(20)
+            )
+            history = [{"role": m.role, "content": m.content} for m in hist_result.scalars().all()]
+
         full_answer = ""
         all_sources = []
         low_conf = False
@@ -102,7 +112,7 @@ async def chat_stream(
             question=data.question, kb_ids=kb_ids, top_k=data.top_k,
             enable_rewrite=enable_rewrite, enable_rerank=enable_rerank,
             rerank_top_n=rerank_top_n, score_threshold=score_threshold,
-            user_id=current_user.id,
+            user_id=current_user.id, history=history,
         ):
             etype = event.get("type", "")
             if etype == "status":
