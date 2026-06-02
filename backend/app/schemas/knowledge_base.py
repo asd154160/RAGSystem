@@ -17,6 +17,9 @@ class KBPermissionResponse(BaseModel):
     department_id: str | None = None
     user_id: str | None = None
     permission_type: str
+    role_name: str | None = None
+    department_name: str | None = None
+    user_name: str | None = None
 
     model_config = {"from_attributes": True}
 

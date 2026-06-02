@@ -7,28 +7,35 @@ import type { User } from "@/types";
 import { Plus, Trash2, X, Save, Edit3 } from "lucide-react";
 
 interface Role { id: string; name: string; }
-interface RoleBrief { id: string; name: string; description?: string | null; }
+interface Department { id: string; name: string; }
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [allRoles, setAllRoles] = useState<Role[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ username: "", email: "", password: "", role_ids: [] as string[] });
+  const [form, setForm] = useState({
+    username: "", email: "", password: "",
+    department_id: "", role_ids: [] as string[],
+  });
   const [error, setError] = useState("");
 
   // Editing state
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [editRoles, setEditRoles] = useState<string[]>([]);
+  const [editDept, setEditDept] = useState("");
 
   const fetchData = useCallback(async () => {
     try {
-      const [u, r] = await Promise.all([
+      const [u, r, d] = await Promise.all([
         apiGet<User[]>("/api/users"),
         apiGet<Role[]>("/api/roles"),
+        apiGet<Department[]>("/api/departments"),
       ]);
       setUsers(u);
       setAllRoles(r);
+      setDepartments(d);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }, []);
@@ -37,13 +44,18 @@ export default function UsersPage() {
 
   async function handleCreate() {
     if (!form.username || !form.email || !form.password) {
-      setError("请填写所有字段");
-      return;
+      setError("请填写所有字段"); return;
     }
     try {
-      await apiPost("/api/users", { ...form, role_ids: form.role_ids.length > 0 ? form.role_ids : undefined });
+      await apiPost("/api/users", {
+        username: form.username,
+        email: form.email,
+        password: form.password,
+        department_id: form.department_id || null,
+        role_ids: form.role_ids.length > 0 ? form.role_ids : undefined,
+      });
       setShowForm(false);
-      setForm({ username: "", email: "", password: "", role_ids: [] });
+      setForm({ username: "", email: "", password: "", department_id: "", role_ids: [] });
       setError("");
       fetchData();
     } catch (err) { setError(err instanceof Error ? err.message : "创建失败"); }
@@ -55,15 +67,19 @@ export default function UsersPage() {
     catch (err) { console.error(err); }
   }
 
-  const startEditRoles = (user: User) => {
+  const startEdit = (user: User) => {
     setEditingUser(user.id);
     setEditRoles(user.roles?.map(r => r.id) || []);
+    setEditDept(user.department_id || "");
   };
 
-  const cancelEditRoles = () => { setEditingUser(null); };
+  const cancelEdit = () => { setEditingUser(null); };
 
-  const handleSaveRoles = async (userId: string) => {
-    await apiPatch(`/api/users/${userId}`, { role_ids: editRoles });
+  const handleSaveEdit = async (userId: string) => {
+    await apiPatch(`/api/users/${userId}`, {
+      role_ids: editRoles,
+      department_id: editDept || null,
+    });
     setEditingUser(null);
     fetchData();
   };
@@ -72,8 +88,10 @@ export default function UsersPage() {
     setEditRoles(prev => prev.includes(roleId) ? prev.filter(id => id !== roleId) : [...prev, roleId]);
   };
 
-  // Find User role ID for default
-  const userRoleId = allRoles.find(r => r.name === "User")?.id || "";
+  function getDeptName(deptId: string | null | undefined) {
+    if (!deptId) return null;
+    return departments.find(d => d.id === deptId)?.name || deptId;
+  }
 
   if (loading) {
     return <AdminLayout><div className="flex items-center justify-center py-20"><p className="text-gray-500">加载中...</p></div></AdminLayout>;
@@ -87,12 +105,12 @@ export default function UsersPage() {
           <button
             onClick={() => {
               const defaultRoleId = allRoles.find(r => r.name === "User")?.id;
-              setForm({ username: "", email: "", password: "", role_ids: defaultRoleId ? [defaultRoleId] : [] });
+              setForm({ username: "", email: "", password: "", department_id: "", role_ids: defaultRoleId ? [defaultRoleId] : [] });
               setShowForm(true);
             }}
             className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
-            <Plus size={16} /> 新建用户
+            <Plus size={16} />新建用户
           </button>
         </div>
 
@@ -111,6 +129,20 @@ export default function UsersPage() {
                   value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
                 <input className="w-full rounded-md border px-3 py-2 text-sm" placeholder="密码" type="password"
                   value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                {/* Department selector */}
+                <div>
+                  <p className="text-xs text-gray-500 mb-1.5">部门</p>
+                  <select
+                    value={form.department_id}
+                    onChange={(e) => setForm({ ...form, department_id: e.target.value })}
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                  >
+                    <option value="">无</option>
+                    {departments.map(d => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
                 {/* Role selection */}
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">角色（默认 User）</p>
@@ -130,8 +162,7 @@ export default function UsersPage() {
                   </div>
                 </div>
                 {error && <p className="text-sm text-red-600">{error}</p>}
-                <button onClick={handleCreate}
-                  className="w-full rounded-md bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700">创建</button>
+                <button onClick={handleCreate} className="w-full rounded-md bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700">创建</button>
               </div>
             </div>
           </div>
@@ -144,6 +175,7 @@ export default function UsersPage() {
               <tr>
                 <th className="px-4 py-3 font-medium">用户名</th>
                 <th className="px-4 py-3 font-medium">邮箱</th>
+                <th className="px-4 py-3 font-medium">部门</th>
                 <th className="px-4 py-3 font-medium">状态</th>
                 <th className="px-4 py-3 font-medium">角色</th>
                 <th className="px-4 py-3 font-medium text-right">操作</th>
@@ -154,6 +186,22 @@ export default function UsersPage() {
                 <tr key={user.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium">{user.username}</td>
                   <td className="px-4 py-3">{user.email}</td>
+                  <td className="px-4 py-3">
+                    {editingUser === user.id ? (
+                      <select
+                        value={editDept}
+                        onChange={(e) => setEditDept(e.target.value)}
+                        className="w-full rounded border px-2 py-1 text-xs"
+                      >
+                        <option value="">无</option>
+                        {departments.map(d => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs">{getDeptName(user.department_id) || <span className="text-gray-400">-</span>}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                       user.is_active ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
@@ -173,9 +221,9 @@ export default function UsersPage() {
                           ))}
                         </div>
                         <div className="flex gap-1 mt-1">
-                          <button onClick={() => handleSaveRoles(user.id)}
+                          <button onClick={() => handleSaveEdit(user.id)}
                             className="text-green-600 hover:text-green-700"><Save size={14} /></button>
-                          <button onClick={cancelEditRoles}
+                          <button onClick={cancelEdit}
                             className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
                         </div>
                       </div>
@@ -184,7 +232,7 @@ export default function UsersPage() {
                         <span className="text-xs">
                           {user.roles?.map(r => r.name).join(", ") || <span className="text-gray-400">无角色</span>}
                         </span>
-                        <button onClick={() => startEditRoles(user)}
+                        <button onClick={() => startEdit(user)}
                           className="ml-1 text-gray-300 hover:text-blue-500"><Edit3 size={12} /></button>
                       </div>
                     )}

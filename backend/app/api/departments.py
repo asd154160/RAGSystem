@@ -1,13 +1,32 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from app.core.security import get_current_user, require_role
 from app.db.session import AsyncSession, get_db
 from app.db.models import Department, User
-from app.schemas.department import DepartmentCreate, DepartmentUpdate, DepartmentResponse, MemberAdd
+from app.schemas.department import DepartmentCreate, DepartmentUpdate, DepartmentResponse, MemberAdd, MemberBrief
 
 router = APIRouter(prefix="/api/departments", tags=["departments"])
+
+
+async def _enrich_dept(db: AsyncSession, dept: Department) -> dict:
+    """Enrich department with member details and user count."""
+    # Members via department_members M2M
+    member_briefs = [
+        MemberBrief(id=u.id, username=u.username, email=u.email)
+        for u in (dept.members or [])
+    ]
+    # Direct user count via User.department_id FK
+    user_count = await db.scalar(
+        select(func.count(User.id)).where(User.department_id == dept.id)
+    )
+    return {
+        "id": dept.id, "name": dept.name, "description": dept.description,
+        "parent_id": dept.parent_id, "is_active": dept.is_active,
+        "created_at": dept.created_at,
+        "members": member_briefs, "user_count": user_count or 0,
+    }
 
 
 @router.get("", response_model=list[DepartmentResponse])
@@ -16,9 +35,13 @@ async def list_departments(
     current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(Department).options(selectinload(Department.children)).order_by(Department.created_at)
+        select(Department).options(
+            selectinload(Department.children),
+            selectinload(Department.members),
+        ).order_by(Department.created_at)
     )
-    return result.scalars().all()
+    depts = result.scalars().all()
+    return [DepartmentResponse(**(await _enrich_dept(db, d))) for d in depts]
 
 
 @router.post("", response_model=DepartmentResponse, status_code=status.HTTP_201_CREATED)
@@ -36,7 +59,7 @@ async def create_department(
     db.add(dept)
     await db.commit()
     await db.refresh(dept)
-    return dept
+    return DepartmentResponse(**(await _enrich_dept(db, dept)))
 
 
 @router.get("/{dept_id}", response_model=DepartmentResponse)
@@ -46,12 +69,15 @@ async def get_department(
     current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(Department).options(selectinload(Department.children)).where(Department.id == dept_id)
+        select(Department).options(
+            selectinload(Department.children),
+            selectinload(Department.members),
+        ).where(Department.id == dept_id)
     )
     dept = result.scalar_one_or_none()
     if not dept:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
-    return dept
+    return DepartmentResponse(**(await _enrich_dept(db, dept)))
 
 
 @router.patch("/{dept_id}", response_model=DepartmentResponse)
@@ -63,7 +89,10 @@ async def update_department(
     _: None = Depends(require_role("SuperAdmin", "Admin")),
 ):
     result = await db.execute(
-        select(Department).options(selectinload(Department.children)).where(Department.id == dept_id)
+        select(Department).options(
+            selectinload(Department.children),
+            selectinload(Department.members),
+        ).where(Department.id == dept_id)
     )
     dept = result.scalar_one_or_none()
     if not dept:
@@ -75,7 +104,7 @@ async def update_department(
 
     await db.commit()
     await db.refresh(dept)
-    return dept
+    return DepartmentResponse(**(await _enrich_dept(db, dept)))
 
 
 @router.delete("/{dept_id}", status_code=status.HTTP_204_NO_CONTENT)
