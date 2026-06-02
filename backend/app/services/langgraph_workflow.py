@@ -225,7 +225,7 @@ def get_rag_graph_no_generate():
 async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
                          enable_rewrite: bool = True, enable_rerank: bool = True,
                          rerank_top_n: int = 6, score_threshold: float = 0.45,
-                         user_id: str = "") -> AsyncGenerator[dict, None]:
+                         user_id: str = "", history: list[dict] | None = None) -> AsyncGenerator[dict, None]:
     """流式 RAG 工作流：graph 处理检索 → LLM 逐 token 流式生成"""
     graph = get_rag_graph_no_generate()
 
@@ -279,13 +279,15 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
         low_confidence = final_state.get("low_confidence", False)
         context = final_state.get("context", "")
 
+        # Build conversation history (limited to last 10 messages to keep context manageable)
+        history_messages = (history or [])[-10:]
+
         # If low confidence or no context, fall back to LLM's own knowledge
         if low_confidence or not context:
             increment_counter("rag_query_low_confidence")
-            messages = [
-                {"role": "system", "content": FALLBACK_SYSTEM_PROMPT},
-                {"role": "user", "content": f"用户问题：{question}"},
-            ]
+            messages = [{"role": "system", "content": FALLBACK_SYSTEM_PROMPT}]
+            messages.extend(history_messages)
+            messages.append({"role": "user", "content": f"用户问题：{question}"})
             prefix = "知识库中未检索到相关内容，以下回答基于大模型自身知识，仅供参考。\n\n"
             async for chunk in llm_service.generate_stream(messages):
                 if prefix:
@@ -298,10 +300,9 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
             return
 
         # Stream LLM generation with KB context (high confidence)
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"参考资料：\n{context}\n\n用户问题：{question}"},
-        ]
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages.extend(history_messages)
+        messages.append({"role": "user", "content": f"参考资料：\n{context}\n\n用户问题：{question}"})
 
         async for chunk in llm_service.generate_stream(messages):
             yield {"type": "answer", "content": chunk}
