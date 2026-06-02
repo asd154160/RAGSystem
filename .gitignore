@@ -38,3 +38,6 @@ Thumbs.db
 # HF models
 HF_model/
 .claude/settings.local.json
+
+# model
+model/

@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "rag_chunks"
 DIM = 1024  # bge-m3 dimension
+REQUIRED_FIELDS = {"id", "chunk_id", "document_id", "knowledge_base_id", "parent_chunk_id",
+                   "chunk_index", "embedding", "chunk_text", "section_title"}
 
 _connected = False
 
@@ -45,6 +47,18 @@ def get_collection() -> Collection:
     connect()
     if not utility.has_collection(COLLECTION_NAME):
         _create_collection()
+    else:
+        col = Collection(COLLECTION_NAME)
+        existing_fields = {f.name for f in col.schema.fields}
+        if not REQUIRED_FIELDS.issubset(existing_fields):
+            logger.info(f"Milvus schema changed, dropping old collection '{COLLECTION_NAME}'...")
+            col.release()
+            utility.drop_collection(COLLECTION_NAME)
+            _create_collection()
+            col = Collection(COLLECTION_NAME)
+        col.load()
+        return col
+
     col = Collection(COLLECTION_NAME)
     col.load()
     return col
@@ -56,6 +70,7 @@ def _create_collection():
         FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, max_length=100),
         FieldSchema(name="document_id", dtype=DataType.VARCHAR, max_length=100),
         FieldSchema(name="knowledge_base_id", dtype=DataType.VARCHAR, max_length=100),
+        FieldSchema(name="parent_chunk_id", dtype=DataType.VARCHAR, max_length=100),
         FieldSchema(name="chunk_index", dtype=DataType.INT64),
         FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=DIM),
         FieldSchema(name="chunk_text", dtype=DataType.VARCHAR, max_length=65535),
@@ -64,7 +79,6 @@ def _create_collection():
     schema = CollectionSchema(fields, description="RAG Chunks Collection")
     col = Collection(COLLECTION_NAME, schema)
 
-    # Index
     index_params = {
         "metric_type": "COSINE",
         "index_type": "IVF_FLAT",
@@ -87,6 +101,7 @@ def insert_chunks(chunks_data: list[dict]) -> list[str]:
         [d["chunk_id"] for d in chunks_data],
         [d["document_id"] for d in chunks_data],
         [d.get("knowledge_base_id", "") for d in chunks_data],
+        [d.get("parent_chunk_id", "") for d in chunks_data],
         [d.get("chunk_index", 0) for d in chunks_data],
         [d["embedding"] for d in chunks_data],
         [d.get("chunk_text", "")[:65535] for d in chunks_data],
@@ -131,7 +146,8 @@ def search(
         param=search_params,
         limit=top_k,
         expr=expr,
-        output_fields=["chunk_id", "document_id", "chunk_index", "chunk_text", "section_title"],
+        output_fields=["chunk_id", "document_id", "knowledge_base_id", "parent_chunk_id",
+                       "chunk_index", "chunk_text", "section_title"],
     )
 
     hits = []
@@ -140,6 +156,8 @@ def search(
             hits.append({
                 "chunk_id": hit.entity.get("chunk_id"),
                 "document_id": hit.entity.get("document_id"),
+                "knowledge_base_id": hit.entity.get("knowledge_base_id"),
+                "parent_chunk_id": hit.entity.get("parent_chunk_id"),
                 "chunk_index": hit.entity.get("chunk_index"),
                 "chunk_text": hit.entity.get("chunk_text"),
                 "section_title": hit.entity.get("section_title"),

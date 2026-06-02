@@ -1,6 +1,6 @@
 """
 异步任务 Worker — 处理文档解析、切分、embedding、索引
-Phase 3: 实现 parse + chunk 流程
+Phase 5: parse + chunk + embed 全部在 Docker 内运行
 """
 import asyncio
 import logging
@@ -17,9 +17,19 @@ from app.db.models.chunk import Chunk
 from app.services import minio_service
 from app.services.file_parser import parse_from_bytes
 from app.services.chunking import chunk_blocks
+from app.services import embedding_service, milvus_service
 
 logger = logging.getLogger("worker")
 logger.setLevel(logging.INFO)
+
+
+def chunk_to_vector_id(chunk_id: str) -> str:
+    return f"vec_{chunk_id}"
+
+
+def func_now():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc)
 
 
 async def process_parse_task(task: DocumentProcessingTask, db_session):
@@ -39,19 +49,15 @@ async def process_parse_task(task: DocumentProcessingTask, db_session):
     await db_session.commit()
 
     try:
-        # Get file from MinIO
         data = minio_service.get_file(version.file_path)
         logger.info(f"Downloaded {len(data)} bytes for {doc.title}")
 
-        # Parse
         parse_result = parse_from_bytes(doc.title, data)
         logger.info(f"Parsed {len(parse_result.blocks)} blocks from {doc.title}")
 
-        # Chunk
         chunk_result = chunk_blocks(parse_result)
         logger.info(f"Created {len(chunk_result.children)} child chunks, {len(chunk_result.parents)} parent chunks")
 
-        # Save chunks to DB
         for c in chunk_result.children:
             db_chunk = Chunk(
                 chunk_id=c.chunk_id,
@@ -108,9 +114,76 @@ async def process_parse_task(task: DocumentProcessingTask, db_session):
         return False
 
 
-def func_now():
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc)
+async def process_embed_task(task: DocumentProcessingTask, db_session):
+    """执行 embedding + Milvus 入库"""
+    version_result = await db_session.execute(
+        select(DocumentVersion).where(DocumentVersion.id == task.document_version_id)
+    )
+    version = version_result.scalar_one_or_none()
+    if not version:
+        return False
+
+    task.status = TaskStatus.running
+    task.started_at = func_now()
+    await db_session.commit()
+
+    if not embedding_service.is_available():
+        task.status = TaskStatus.failed
+        task.error_message = "Embedding service not available (sentence-transformers not loaded)"
+        await db_session.commit()
+        return False
+
+    try:
+        chunk_result = await db_session.execute(
+            select(Chunk).where(
+                Chunk.document_version_id == version.id,
+                Chunk.parent_chunk_id.isnot(None),
+                Chunk.is_active == True,
+            )
+        )
+        chunks = chunk_result.scalars().all()
+
+        if not chunks:
+            task.status = TaskStatus.failed
+            task.error_message = "No chunks to embed"
+            await db_session.commit()
+            return False
+
+        logger.info(f"Embedding {len(chunks)} chunks for document version {version.id[:8]}...")
+
+        texts = [c.chunk_text for c in chunks]
+        embeddings = embedding_service.embed_texts(texts)
+
+        milvus_data = []
+        for chunk, emb in zip(chunks, embeddings):
+            vector_id = chunk_to_vector_id(chunk.chunk_id)
+            milvus_data.append({
+                "id": vector_id,
+                "chunk_id": chunk.chunk_id,
+                "document_id": chunk.document_id,
+                "knowledge_base_id": chunk.knowledge_base_id or "",
+                "parent_chunk_id": chunk.parent_chunk_id or "",
+                "chunk_index": chunk.chunk_index,
+                "embedding": emb,
+                "chunk_text": chunk.chunk_text,
+                "section_title": chunk.section_title or "",
+            })
+
+        milvus_service.insert_chunks(milvus_data)
+        logger.info(f"Indexed {len(milvus_data)} vectors into Milvus")
+
+        task.status = TaskStatus.completed
+        task.completed_at = func_now()
+        await db_session.commit()
+        return True
+
+    except Exception as e:
+        logger.error(f"Embed failed: {e}")
+        task.status = TaskStatus.failed
+        task.error_message = str(e)[:1000]
+        task.completed_at = func_now()
+        await db_session.commit()
+        return False
 
 
 async def poll_and_process():
@@ -127,15 +200,11 @@ async def poll_and_process():
                 task = result.scalar_one_or_none()
 
                 if task:
-                    print(f"Processing task {task.id} ({task.task_type.value})", flush=True)
+                    logger.info(f"Processing task {task.id} ({task.task_type.value})")
                     if task.task_type == TaskType.parse:
                         await process_parse_task(task, db)
                     elif task.task_type == TaskType.embed:
-                        # Phase 5 will implement embedding + Milvus indexing
-                        print(f"  Skipping embed task (Phase 5)", flush=True)
-                        task.status = TaskStatus.completed
-                        task.completed_at = func_now()
-                        await db.commit()
+                        await process_embed_task(task, db)
                     else:
                         task.status = TaskStatus.completed
                         task.completed_at = func_now()
@@ -151,7 +220,7 @@ async def poll_and_process():
 async def main():
     import logging as _logging
     _logging.basicConfig(level=_logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    print("Worker started — polling for tasks...", flush=True)
+    logger.info("Worker started — polling for parse + embed tasks...")
     await poll_and_process()
 
 
@@ -159,7 +228,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as e:
-        print(f"Worker FATAL: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Worker FATAL: {e}", exc_info=True)
         raise

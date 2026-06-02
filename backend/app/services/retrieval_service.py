@@ -102,6 +102,44 @@ def _rrf_fusion(
     return fused
 
 
+async def _enrich_results(results: list[dict]) -> list[dict]:
+    """补全 Milvus 结果中缺失的 document_name 和 parent_chunk_id"""
+    if not results:
+        return results
+
+    need_doc_name = [r for r in results if not r.get("document_name")]
+    need_parent = [r for r in results if not r.get("parent_chunk_id") and r.get("chunk_id")]
+
+    if not need_doc_name and not need_parent:
+        return results
+
+    async with async_session() as db:
+        if need_parent:
+            cids = list({r["chunk_id"] for r in need_parent})
+            chunk_result = await db.execute(
+                text("SELECT chunk_id, parent_chunk_id FROM chunks WHERE chunk_id = ANY(:cids)"),
+                {"cids": cids},
+            )
+            parent_map = {r.chunk_id: r.parent_chunk_id for r in chunk_result.fetchall() if r.parent_chunk_id}
+            for r in results:
+                if not r.get("parent_chunk_id"):
+                    r["parent_chunk_id"] = parent_map.get(r.get("chunk_id"), "")
+
+        if need_doc_name:
+            dids = list({r["document_id"] for r in need_doc_name if r.get("document_id")})
+            if dids:
+                doc_result = await db.execute(
+                    text("SELECT id, title FROM documents WHERE id = ANY(:dids)"),
+                    {"dids": dids},
+                )
+                name_map = {r.id: r.title for r in doc_result.fetchall()}
+                for r in results:
+                    if not r.get("document_name"):
+                        r["document_name"] = name_map.get(r.get("document_id"), "")
+
+    return results
+
+
 async def hybrid_search(
     query: str,
     top_k: int = 10,
@@ -125,7 +163,9 @@ async def hybrid_search(
     else:
         results = pg_results
 
-    return results[:top_k]
+    results = results[:top_k]
+    results = await _enrich_results(results)
+    return results
 
 
 async def rerank_results(

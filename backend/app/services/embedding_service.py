@@ -11,13 +11,18 @@ _model = None
 _available = False
 
 
+MODEL_PATH = "/app/models/bge-m3"
+
+
 def _load_model():
     global _model, _available
     if _model is not None:
         return
     try:
         from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer("BAAI/bge-m3")
+        import os
+        path = os.environ.get("BGE_M3_PATH", MODEL_PATH)
+        _model = SentenceTransformer(path)
         _available = True
         logger.info("bge-m3 model loaded successfully")
     except Exception as e:
