@@ -28,10 +28,10 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "review_document", "publish_document", "query_knowledge_base",
     ],
     "User": [
-        "upload_document", "query_knowledge_base",
+        "query_knowledge_base",
     ],
     "userin": [
-        "upload_document", "query_knowledge_base",
+        "query_knowledge_base",
     ],
 }
 
