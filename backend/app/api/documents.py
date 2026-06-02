@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from sqlalchemy import select, delete as sql_delete, text
 from sqlalchemy.orm import selectinload
 
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_permission
 from app.db.session import AsyncSession, get_db
 from app.db.models import Document, DocumentVersion, DocumentProcessingTask, KnowledgeBase, User
 from app.db.models.document import DocStatus, TaskType, TaskStatus
@@ -22,7 +22,7 @@ async def upload_document(
     file: UploadFile = File(...),
     knowledge_base_id: str = Form(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("upload_document")),
 ):
     # Validate file extension
     ext = (file.filename or "").rsplit(".", 1)[-1].lower()
@@ -99,7 +99,7 @@ async def replace_document(
     doc_id: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("upload_document")),
 ):
     """上传文档新版本 — 内容 hash 变化时生成新 version，触发解析流程"""
     ext = (file.filename or "").rsplit(".", 1)[-1].lower()
@@ -284,7 +284,7 @@ async def preview_document(
 async def trigger_parse(
     doc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("upload_document")),
 ):
     """触发文档解析异步任务"""
     result = await db.execute(
@@ -357,7 +357,7 @@ class DocumentUpdate(BaseModel):
 async def review_document(
     doc_id: str, data: ReviewRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("review_document")),
 ):
     result = await db.execute(
         select(Document).options(selectinload(Document.versions)).where(Document.id == doc_id)
@@ -405,7 +405,7 @@ async def review_document(
 async def publish_document(
     doc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("publish_document")),
 ):
     result = await db.execute(
         select(Document).options(selectinload(Document.versions)).where(Document.id == doc_id)
@@ -447,7 +447,7 @@ async def publish_document(
 async def offline_document(
     doc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("publish_document")),
 ):
     result = await db.execute(
         select(Document).options(selectinload(Document.versions)).where(Document.id == doc_id)
@@ -472,7 +472,7 @@ async def offline_document(
 async def retry_document(
     doc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("upload_document")),
 ):
     result = await db.execute(
         select(Document).options(selectinload(Document.versions)).where(Document.id == doc_id)
@@ -502,7 +502,7 @@ async def retry_document(
 async def index_document(
     doc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("manage_knowledge_base")),
 ):
     """为已发布文档创建向量入库任务（需本地运行 index_worker 处理）"""
     result = await db.execute(
@@ -540,7 +540,7 @@ async def index_document(
 async def update_document(
     doc_id: str, data: DocumentUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("upload_document")),
 ):
     result = await db.execute(select(Document).where(Document.id == doc_id))
     doc = result.scalar_one_or_none()
@@ -558,7 +558,7 @@ async def update_document(
 async def delete_document(
     doc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("upload_document")),
 ):
     # Check existence
     result = await db.execute(select(Document.id).where(Document.id == doc_id))
