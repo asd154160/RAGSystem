@@ -132,7 +132,7 @@ async def _enrich_results(results: list[dict]) -> list[dict]:
                     text("SELECT id, title FROM documents WHERE id = ANY(:dids)"),
                     {"dids": dids},
                 )
-                name_map = {r.id: r.title for r in doc_result.fetchall()}
+                name_map = {str(r.id): r.title for r in doc_result.fetchall()}
                 for r in results:
                     if not r.get("document_name"):
                         r["document_name"] = name_map.get(r.get("document_id"), "")
