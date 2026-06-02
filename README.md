@@ -336,7 +336,7 @@ bge-reranker-v2-m3 精排（Cross-encoder，保留 top_n=6）
   ↓
 Parent Chunk 回填（child → parent 上下文扩展）
   ↓
-LangGraph 编排（状态图: rewrite → retrieve → rerank → check_confidence → expand/reject）
+LangGraph 编排（状态图: rewrite → retrieve → rerank → check_confidence → expand → generate）
   ↓
 LLM 流式生成（SSE token-by-token）
   ↓
@@ -346,6 +346,89 @@ LLM 流式生成（SSE token-by-token）
 ```
 
 **SSE 事件类型：** `status`（节点进度） → `answer`（LLM token） → `sources`（来源列表） → `done`（完成 + session_id + low_confidence 标志）
+
+### LangGraph 状态图详解
+
+RAG 检索链路由 `langgraph_workflow.py` 中的 **StateGraph** 编排，将整个问答流程形式化为 6 个节点的有向无环图（DAG）。
+
+**状态定义（RAGState）：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `question` | `str` | 用户原始问题 |
+| `rewritten_queries` | `list[str]` | Query Rewrite 后的多角度查询 |
+| `retrieval_results` | `list[dict]` | 混合检索 + RRF 融合后的结果（去重后 top_k×2） |
+| `reranked_results` | `list[dict]` | Rerank 精排后的结果（top_n 条） |
+| `context` | `str` | 拼接后的参考资料文本（Parent Chunk 扩展后） |
+| `answer` | `str` | 最终回答（非流式场景） |
+| `sources` | `list[dict]` | 来源引用列表（chunk_id、文档名、章节、分数） |
+| `low_confidence` | `bool` | 是否为低置信度检索 |
+| `error` | `str \| None` | 错误信息 |
+
+**图结构：**
+
+```
+                ┌──────────┐
+                │  rewrite  │  Query Rewrite 改写/拆分
+                └─────┬────┘
+                      │
+                ┌─────▼────┐
+                │ retrieve  │  混合检索 + RRF 融合 + 去重
+                └─────┬────┘
+                      │
+                ┌─────▼────┐
+                │  rerank   │  bge-reranker-v2-m3 精排
+                └─────┬────┘
+                      │
+              ┌───────▼───────┐
+              │ check_confidence│  评估 max_score vs threshold
+              └───────┬───────┘
+                      │ (always)
+              ┌───────▼───────┐
+              │    expand     │  Parent Chunk 回填 + 构建 context/sources
+              └───────┬───────┘
+                      │
+              ┌───────▼───────┐
+              │   generate    │  LLM 流式生成（仅非流式场景，流式在 graph 外部处理）
+              └───────────────┘
+```
+
+**各节点职责：**
+
+| 节点 | 文件/函数 | 职责 |
+|------|-----------|------|
+| `rewrite` | `query_rewrite.py` | LLM 检测复合问题 → 拆分子问题 / 多角度改写，返回 `["q1", "q2", ...]` |
+| `retrieve` | `retrieval_service.hybrid_search()` | 对每个改写查询执行 Milvus 向量 + pg_trgm 关键词双路召回 → RRF 融合 → chunk_id 去重 |
+| `rerank` | `retrieval_service.rerank_results()` | bge-reranker-v2-m3 Cross-encoder 对检索结果精排，保留前 `rerank_top_n` 条 |
+| `check_confidence` | `langgraph_workflow._make_confidence_node()` | 计算 `max_score`：若 `max_score < score_threshold` 则 `low_confidence=True` |
+| `expand` | `retrieval_service.expand_parent_chunks()` | Parent Chunk 回填（child→parent 上下文扩展），拼接 `context` 文本，构建 `sources` 列表 |
+| `generate` | `langgraph_workflow._make_generate_node()` | 仅非流式场景使用；流式场景中 LLM 生成在 graph 外部由 `run_rag_stream()` 直接处理 |
+
+**回答生成策略（`run_rag_stream` 中的关键决策）：**
+
+```
+graph 执行完毕 → 获取 context / low_confidence / sources
+        │
+        ├── low_confidence=True 或 context 为空
+        │     │
+        │     └── 回退到大模型自身知识
+        │           • 使用 FALLBACK_SYSTEM_PROMPT（允许 LLM 用自身知识）
+        │           • 不传检索上下文
+        │           • 回答前缀标注："知识库中未检索到相关内容，以下回答基于大模型自身知识，仅供参考"
+        │           • sources 可能为空或不相关（标记 low_confidence）
+        │
+        └── low_confidence=False 且 context 非空
+              │
+              └── 基于检索上下文生成
+                    • 使用 SYSTEM_PROMPT（严格基于文档回答，不编造）
+                    • 传入 context 作为参考资料
+                    • sources 包含相关文档引用
+```
+
+**流式 vs 非流式：**
+
+- **流式（SSE）**：`run_rag_stream()` — graph 不含 generate 节点，graph 执行到 expand 后由外部函数直接调用 `llm_service.generate_stream()` 逐 token 产出 SSE 事件
+- **非流式**：`build_rag_graph(include_generate=True)` — graph 含 generate 节点，`graph.ainvoke()` 返回完整 `answer`
 
 ---
 
