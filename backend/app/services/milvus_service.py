@@ -126,6 +126,20 @@ def delete_by_document_id(document_id: str) -> int:
     return count
 
 
+def get_vectors_by_document_id(document_id: str) -> list[dict]:
+    """获取某文档在 Milvus 中的所有向量 (chunk_id + embedding)，用于复用旧 embedding"""
+    col = get_collection()
+    try:
+        results = col.query(
+            expr=f'document_id == "{document_id}"',
+            output_fields=["chunk_id", "embedding"],
+        )
+        return results
+    except Exception as e:
+        logger.warning(f"Failed to query vectors for document {document_id}: {e}")
+        return []
+
+
 def search(
     query_embedding: list[float],
     top_k: int = 10,

@@ -518,13 +518,7 @@ async def index_document(
 
     version = doc.versions[0]
 
-    # Clear old vectors from Milvus
-    try:
-        milvus_service.delete_by_document_id(doc.id)
-    except Exception:
-        pass
-
-    # Create embed task
+    # Create embed task — worker handles old vector cleanup + hash-based reuse
     task = DocumentProcessingTask(
         id=str(uuid.uuid4()),
         document_version_id=version.id,

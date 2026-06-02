@@ -115,7 +115,7 @@ async def process_parse_task(task: DocumentProcessingTask, db_session):
 
 
 async def process_embed_task(task: DocumentProcessingTask, db_session):
-    """执行 embedding + Milvus 入库"""
+    """执行 embedding + Milvus 入库，内容未变的 chunk 复用旧 embedding"""
     version_result = await db_session.execute(
         select(DocumentVersion).where(DocumentVersion.id == task.document_version_id)
     )
@@ -149,16 +149,61 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
             await db_session.commit()
             return False
 
-        logger.info(f"Embedding {len(chunks)} chunks for document version {version.id[:8]}...")
+        doc_id = chunks[0].document_id
 
-        texts = [c.chunk_text for c in chunks]
-        embeddings = embedding_service.embed_texts(texts)
+        # 1. 查询 Milvus 中该文档的旧向量
+        old_vectors = milvus_service.get_vectors_by_document_id(doc_id)
+        reuse_map = {}  # chunk_hash → embedding
+        if old_vectors:
+            old_cids = [v["chunk_id"] for v in old_vectors if v.get("chunk_id")]
+            if old_cids:
+                old_chunk_result = await db_session.execute(
+                    select(Chunk.chunk_id, Chunk.chunk_hash).where(Chunk.chunk_id.in_(old_cids))
+                )
+                cid_to_hash = {r.chunk_id: r.chunk_hash for r in old_chunk_result.fetchall()}
+                for v in old_vectors:
+                    h = cid_to_hash.get(v["chunk_id"])
+                    if h:
+                        reuse_map[h] = v["embedding"]
 
+        # 2. 删除旧向量
+        if old_vectors:
+            milvus_service.delete_by_document_id(doc_id)
+
+        # 3. 分离：hash 匹配则复用，否则需要新 embedding
+        reuse_chunks = []
+        new_chunks = []
+        for c in chunks:
+            if c.chunk_hash and c.chunk_hash in reuse_map:
+                reuse_chunks.append(c)
+            else:
+                new_chunks.append(c)
+
+        logger.info(
+            f"Embedding {len(chunks)} chunks for document version {version.id[:8]}..."
+            f" reuse={len(reuse_chunks)} new={len(new_chunks)}"
+        )
+
+        # 4. 只对新 chunk 做 embedding
+        new_embeddings = {}
+        if new_chunks:
+            texts = [c.chunk_text for c in new_chunks]
+            new_embeddings = dict(zip([c.chunk_id for c in new_chunks], embedding_service.embed_texts(texts)))
+
+        # 5. 组装 Milvus 数据（复用 + 新）
         milvus_data = []
-        for chunk, emb in zip(chunks, embeddings):
-            vector_id = chunk_to_vector_id(chunk.chunk_id)
+        for chunk in chunks:
+            if chunk.chunk_id in new_embeddings:
+                emb = new_embeddings[chunk.chunk_id]
+            else:
+                emb = reuse_map.get(chunk.chunk_hash)
+
+            if emb is None:
+                logger.warning(f"No embedding for chunk {chunk.chunk_id[:8]}, skipping")
+                continue
+
             milvus_data.append({
-                "id": vector_id,
+                "id": chunk_to_vector_id(chunk.chunk_id),
                 "chunk_id": chunk.chunk_id,
                 "document_id": chunk.document_id,
                 "knowledge_base_id": chunk.knowledge_base_id or "",
@@ -170,7 +215,7 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
             })
 
         milvus_service.insert_chunks(milvus_data)
-        logger.info(f"Indexed {len(milvus_data)} vectors into Milvus")
+        logger.info(f"Indexed {len(milvus_data)} vectors into Milvus (reused={len(reuse_chunks)} new={len(new_chunks)})")
 
         task.status = TaskStatus.completed
         task.completed_at = func_now()
