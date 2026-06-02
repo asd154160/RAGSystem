@@ -31,7 +31,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "upload_document", "query_knowledge_base",
     ],
     "userin": [
-        "query_knowledge_base",
+        "upload_document", "query_knowledge_base",
     ],
 }
 
@@ -81,7 +81,7 @@ def seed():
             ("admin",      "admin@ragsystem.local",      "admin123", "Admin",      False),
             ("kbadmin",    "kbadmin@ragsystem.local",    "kbadmin123", "KBAdmin",   False),
             ("reviewer",   "reviewer@ragsystem.local",   "reviewer123", "Reviewer",  False),
-            ("user",       "user@ragsystem.local",       "user123",   "User",       True),
+            ("user",       "user@ragsystem.local",       "user123",   "User",       False),
             ("userin",     "userin@ragsystem.local",     "userin123", "userin",     True),
         ]
         for username, email, password, role_name, personal_rag in default_users:
