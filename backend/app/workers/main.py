@@ -5,6 +5,7 @@ Phase 5: parse + chunk + embed 全部在 Docker 内运行
 import asyncio
 import logging
 import time
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -96,12 +97,42 @@ async def process_parse_task(task: DocumentProcessingTask, db_session):
             )
             db_session.add(db_chunk)
 
-        version.status = DocStatus.pending_review
         version.chunk_count = len(chunk_result.children)
-        doc.status = DocStatus.pending_review
         task.status = TaskStatus.completed
         task.completed_at = func_now()
-        await db_session.commit()
+
+        # Check KB type to determine next status
+        kb_result = await db_session.execute(
+            select(KnowledgeBase.type).where(KnowledgeBase.id == doc.knowledge_base_id)
+        )
+        kb_type = kb_result.scalar_one_or_none()
+
+        if kb_type == "personal":
+            # Personal RAG: skip review, auto-publish + create embed task
+            version.status = DocStatus.published
+            version.is_active = True
+            doc.status = DocStatus.published
+            # Activate all chunks
+            from app.db.models.chunk import Chunk as ChunkModel
+            chunk_result2 = await db_session.execute(
+                select(ChunkModel).where(ChunkModel.document_version_id == version.id)
+            )
+            for c in chunk_result2.scalars().all():
+                c.is_active = True
+            # Create embed task
+            embed_task = DocumentProcessingTask(
+                id=str(uuid.uuid4()),
+                document_version_id=version.id,
+                task_type=TaskType.embed,
+                status=TaskStatus.pending,
+            )
+            db_session.add(embed_task)
+            await db_session.commit()
+            logger.info(f"Personal document {doc.title} auto-published with {version.chunk_count} chunks, embed task created")
+        else:
+            version.status = DocStatus.pending_review
+            doc.status = DocStatus.pending_review
+            await db_session.commit()
 
         increment_counter("doc_parsed")
         increment_counter("chunks_created", len(chunk_result.children))
