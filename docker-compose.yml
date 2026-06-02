@@ -119,7 +119,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-      - ./models:/app/models
+      - ./models:/app/models  # 需先运行 scripts/download_models.py 下载模型
     depends_on:
       postgres:
         condition: service_healthy
@@ -152,7 +152,7 @@ services:
       LOG_LEVEL: INFO
     volumes:
       - ./backend:/app
-      - ./models:/app/models
+      - ./models:/app/models  # 需先运行 scripts/download_models.py 下载模型
     depends_on:
       postgres:
         condition: service_healthy
