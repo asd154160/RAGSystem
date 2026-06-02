@@ -14,6 +14,7 @@ from app.services.retrieval_service import (
 )
 from app.services import llm_service
 from app.services import query_rewrite as qr
+from app.services.metrics_service import increment_counter, record_timing
 
 logger = logging.getLogger(__name__)
 
@@ -241,12 +242,19 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
     }
 
     try:
+        increment_counter("rag_query_total")
+
+        node_start = {}
         async for event in graph.astream_events(initial_state, version="v2"):
             kind = event.get("event", "")
             name = event.get("name", "")
 
             if kind == "on_chain_start" and name in node_names:
+                node_start[name] = __import__("time").time()
                 yield {"type": "status", "node": name, "message": node_names[name]}
+            elif kind == "on_chain_end" and name in node_start:
+                elapsed = (__import__("time").time() - node_start[name]) * 1000
+                record_timing(f"rag_{name}_ms", elapsed)
 
         # After graph completes, get final state
         final_state = await graph.ainvoke(initial_state)
@@ -256,6 +264,8 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
 
         # If reject or no context, yield static answer
         if not context:
+            if low_confidence:
+                increment_counter("rag_query_low_confidence")
             answer = final_state.get("answer", "")
             if not answer:
                 answer = "当前知识库中没有找到与该问题相关的可靠依据。建议您换个问法重新提问。"
@@ -271,6 +281,8 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
         ]
 
         prefix = "以下内容基于低置信度检索结果，仅供参考。\n\n" if low_confidence else ""
+        if low_confidence:
+            increment_counter("rag_query_low_confidence")
 
         async for chunk in llm_service.generate_stream(messages):
             if prefix:
@@ -283,5 +295,6 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
 
     except Exception as e:
         logger.error(f"LangGraph workflow error: {e}")
+        increment_counter("rag_query_error")
         yield {"type": "error", "content": str(e)}
         yield {"type": "done", "low_confidence": True}

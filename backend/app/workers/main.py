@@ -20,6 +20,7 @@ from app.services.file_parser import parse_from_bytes
 from app.services.chunking import chunk_blocks
 from app.services import embedding_service, milvus_service, llm_service
 from app.services.contextual_retrieval import generate_chunk_context
+from app.services.metrics_service import increment_counter, record_timing
 
 logger = logging.getLogger("worker")
 logger.setLevel(logging.INFO)
@@ -102,6 +103,8 @@ async def process_parse_task(task: DocumentProcessingTask, db_session):
         task.completed_at = func_now()
         await db_session.commit()
 
+        increment_counter("doc_parsed")
+        increment_counter("chunks_created", len(chunk_result.children))
         logger.info(f"Document {doc.title} processed: {len(chunk_result.children)} chunks")
         return True
 
@@ -267,6 +270,11 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
 
         milvus_service.insert_chunks(milvus_data)
         logger.info(f"Indexed {len(milvus_data)} vectors into Milvus (reused={len(reuse_chunks)} new={len(new_chunks)})")
+
+        increment_counter("doc_indexed")
+        increment_counter("chunks_embedded", len(new_chunks))
+        if reuse_chunks:
+            increment_counter("chunks_reused", len(reuse_chunks))
 
         task.status = TaskStatus.completed
         task.completed_at = func_now()
