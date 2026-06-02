@@ -4,6 +4,22 @@ import { useState, useRef, useEffect } from "react";
 import { Send, Bot, User, Loader2, Database, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { ChatMessage, RagSource } from "@/types";
+import ThinkBlock, { parseThinkBlocks } from "./think-block";
+
+function MessageContent({ content }: { content: string }) {
+  const blocks = parseThinkBlocks(content);
+  return (
+    <div className="prose prose-sm max-w-none">
+      {blocks.map((block, i) =>
+        block.type === "think" ? (
+          <ThinkBlock key={i} content={block.content} />
+        ) : (
+          <ReactMarkdown key={i}>{block.content}</ReactMarkdown>
+        )
+      )}
+    </div>
+  );
+}
 
 interface KB { id: string; name: string; }
 
@@ -77,9 +93,7 @@ export default function ChatPanel({
                 {m.role === "user" ? (
                   <p>{m.content}</p>
                 ) : (
-                  <div className="prose prose-sm max-w-none">
-                    <ReactMarkdown>{m.content}</ReactMarkdown>
-                  </div>
+                  <MessageContent content={m.content} />
                 )}
               </div>
               {m.role === "user" && (
@@ -120,9 +134,7 @@ export default function ChatPanel({
                     <span>{statusMsg}</span>
                   </div>
                 ) : streamContent ? (
-                  <div className="prose prose-sm max-w-none">
-                    <ReactMarkdown>{streamContent}</ReactMarkdown>
-                  </div>
+                  <MessageContent content={streamContent} />
                 ) : (
                   <div className="flex items-center gap-2 text-gray-400">
                     <Loader2 size={14} className="animate-spin" />
