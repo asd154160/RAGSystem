@@ -1,49 +1,59 @@
 # 企业级 RAG 系统
 
-面向中小型跨境电商企业的企业级 RAG 平台，包含**企业 RAG**与**个人 RAG**两个模块。9 个 Phase 全部开发完成，已具备生产就绪的基础能力。
+面向跨境电商企业的企业级 RAG 知识库问答平台，支持**企业 RAG**和**个人 RAG**双模块。覆盖完整的文档生命周期、混合检索链路、RBAC+ABAC 权限模型、流式 SSE 问答、会话管理、审计监控。
 
-支持完整的文档生命周期（上传→解析→切分→审核→发布→向量入库）、LangGraph 编排的混合检索链路（Query Rewrite + 向量检索 + 全文检索 + RRF 融合 + Rerank 精排 + Parent Chunk 回填）、流式 LLM 问答、会话管理、审计日志、反馈、知识缺口、评测、监控。
+---
 
 ## 技术栈
 
 | 层 | 技术 |
 |----|------|
-| 后端 | FastAPI + SQLAlchemy(async) + Pydantic |
+| 后端框架 | FastAPI + SQLAlchemy(async) + Pydantic |
 | 前端 | Next.js 14 App Router + TailwindCSS + TypeScript |
-| AI 编排 | LangChain + LangGraph |
-| 向量数据库 | Milvus |
-| 主数据库 | PostgreSQL 16 + pgvector + pg_trgm |
+| AI 编排 | LangChain + LangGraph (StateGraph) |
+| 向量数据库 | Milvus 2.4 (IVF_FLAT / COSINE) |
+| 关系数据库 | PostgreSQL 16 + pgvector + pg_trgm |
 | 对象存储 | MinIO |
-| 缓存 | Redis |
-| Embedding | bge-m3（本地部署） |
-| Rerank | bge-reranker-v2-m3（本地部署） |
-| LLM | OpenAI / DeepSeek / Qwen / MiniMax / OpenAI 兼容 API |
-| 部署 | Docker Compose |
+| 缓存/限流 | Redis |
+| Embedding | bge-m3（Docker 内 sentence-transformers） |
+| Rerank | bge-reranker-v2-m3（Docker 内 FlagEmbedding） |
+| LLM | DeepSeek / Qwen / OpenAI / MiniMax（OpenAI 兼容协议） |
+| 容器化 | Docker Compose（8 个服务） |
+
+---
 
 ## 快速开始
 
 ### 环境要求
 
 - Docker & Docker Compose
-- Python 3.11+（本地运行 embedding/rerank 需要）
-- Node.js 20+（前端开发可选，Docker 内已含）
+- 8GB+ 内存（bge-m3 模型约 2GB）
 
-### 1. 启动服务
+### 1. 下载模型文件
 
-```bash
-cd D:\Desktop\RAGSystem
-docker compose up -d
+从 [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) 和 [BAAI/bge-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3) 下载模型文件，放置到 `models/` 目录：
+
+```
+models/
+├── bge-m3/                    # embedding 模型
+│   ├── config.json
+│   ├── model.safetensors
+│   ├── tokenizer.json
+│   └── ...
+└── bge-reranker-v2-m3/       # rerank 模型
+    ├── config.json
+    ├── model.safetensors
+    ├── tokenizer.json
+    └── ...
 ```
 
-### 2. 初始化数据库
+### 2. 配置环境变量
 
 ```bash
-docker compose exec backend PYTHONPATH=/app python app/db/seed.py
+cp .env.example .env
 ```
 
-### 3. 配置 LLM
-
-编辑 `.env`，填入 API Key。支持 OpenAI / DeepSeek / MiniMax / Qwen 等 OpenAI 兼容 API：
+编辑 `.env`，填入 LLM API Key：
 
 ```env
 LLM_PROVIDER=openai-compatible
@@ -53,35 +63,21 @@ LLM_MODEL_NAME=MiniMax-M2.7
 LLM_TEMPERATURE=0.1
 ```
 
-配置后重建后端容器（`.env` 变更需 `--force-recreate`，`restart` 不会重读环境变量）：
+### 3. 启动全部服务
 
 ```bash
-docker compose up -d --force-recreate backend worker
+docker compose up -d
 ```
 
-MiniMax 可用模型：`MiniMax-M3`、`MiniMax-M2.7`、`MiniMax-M2.5` 等（调用 `GET https://api.minimax.chat/v1/models` 查询最新列表）。无 LLM 配置时系统仍可运行，问答回退为仅返回检索结果。
+首次启动会自动拉取镜像并构建。共 8 个服务：etcd、minio、milvus、postgres、redis、backend、worker、frontend。
 
-### 4. 本地安装 Embedding/Rerank（必须）
-
-Docker 内不含 torch，无法加载 `sentence-transformers` 和 `FlagEmbedding`。**embedding 和 rerank 模型需在本地运行**，否则向量检索和精排不可用（回退为纯关键词检索）：
+### 4. 初始化种子数据
 
 ```bash
-pip install sentence-transformers FlagEmbedding
+docker compose exec backend PYTHONPATH=/app python app/db/seed.py
 ```
 
-运行向量入库 Worker，将已发布文档的 chunks 做 embedding 后写入 Milvus：
-
-```bash
-cd backend
-python -m app.services.index_worker   # 持续轮询 embed 任务
-```
-
-如果已有 `published` 文档但 Worker 未处理，可用一次性脚本批量入库：
-
-```bash
-cd backend
-python -m app.services.index_bootstrap  # 一次性：所有 published chunks → embedding → Milvus
-```
+创建 5 个角色、9 个权限、5 个默认用户。
 
 ### 5. 访问系统
 
@@ -91,7 +87,30 @@ python -m app.services.index_bootstrap  # 一次性：所有 published chunks �
 | 后端 Swagger | http://localhost:8000/docs |
 | MinIO Console | http://localhost:9001 |
 
-**登录账号**: `superadmin` / `admin123`
+### 登录账号
+
+| 用户 | 密码 | 角色 | 说明 |
+|------|------|------|------|
+| superadmin | admin123 | SuperAdmin | 超级管理员，已开启个人 RAG |
+| admin | admin123 | Admin | 企业管理员 |
+| reviewer | reviewer123 | Reviewer | 文档审核员 |
+| user | user123 | User | 普通用户 |
+| userin | userin123 | userin | 个人 RAG 专用角色 |
+
+### 常用命令
+
+```bash
+docker compose up -d                         # 启动全部服务
+docker compose up -d --build backend worker  # 代码变更后重建（含依赖变更时使用）
+docker compose restart backend               # 快速重启后端（volume 挂载，代码即改即生效）
+docker compose restart frontend              # 重启前端（新增页面时需重启）
+docker compose ps                            # 查看服务状态
+docker compose logs backend                  # 后端日志
+docker compose logs worker                   # Worker 日志
+docker compose exec backend PYTHONPATH=/app python app/db/seed.py  # 重新初始化种子数据
+```
+
+---
 
 ## 项目结构
 
@@ -99,192 +118,250 @@ python -m app.services.index_bootstrap  # 一次性：所有 published chunks �
 RAGSystem/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                  # FastAPI 入口 + CORS + 路由注册
-│   │   ├── core/                    # 配置(config)、安全(JWT/RBAC)、限流
+│   │   ├── main.py                     # FastAPI 入口 + CORS + 路由注册
+│   │   ├── core/                       # 配置(config)、安全(JWT/RBAC)、限流(rate_limit)
 │   │   ├── db/
-│   │   │   ├── models/              # 16 个 SQLAlchemy 模型
-│   │   │   ├── session.py           # 异步 + 同步 DB 引擎
-│   │   │   ├── seed.py              # 种子数据
-│   │   │   └── migrations/          # Alembic
-│   │   ├── api/                     # 13 个路由模块
-│   │   │   ├── auth.py, users.py, departments.py, roles.py
-│   │   │   ├── knowledge_bases.py, documents.py
-│   │   │   ├── enterprise_rag.py, personal_rag.py
-│   │   │   ├── sessions.py, model_configs.py
-│   │   │   ├── audit_logs.py, knowledge_gaps.py
-│   │   │   ├── evaluations.py, monitor.py
-│   │   ├── services/                # 14 个服务模块
-│   │   │   ├── file_parser.py, chunking.py
-│   │   │   ├── embedding_service.py, rerank_service.py
-│   │   │   ├── milvus_service.py, minio_service.py
-│   │   │   ├── retrieval_service.py, llm_service.py
-│   │   │   ├── query_rewrite.py, contextual_retrieval.py
-│   │   │   ├── langgraph_workflow.py
-│   │   │   ├── evaluation_service.py, metrics_service.py
-│   │   │   └── audit_service.py, index_worker.py
-│   │   ├── schemas/                 # Pydantic 模型
-│   │   └── workers/                 # 异步 Worker
-│   ├── requirements.txt             # 本地完整依赖（含 torch）
-│   ├── requirements-docker.txt      # Docker 轻量依赖
+│   │   │   ├── models/                 # 16 个 SQLAlchemy 模型
+│   │   │   ├── session.py              # async + sync 数据库引擎
+│   │   │   └── seed.py                 # 种子数据（角色/权限/用户）
+│   │   ├── api/                        # 14 个路由模块
+│   │   │   ├── auth.py                 # 登录/刷新/退出/当前用户
+│   │   │   ├── users.py                # 用户 CRUD + 密码修改 + 个人RAG开关
+│   │   │   ├── departments.py          # 部门 CRUD + M2M 成员管理
+│   │   │   ├── roles.py                # 角色/权限列表
+│   │   │   ├── knowledge_bases.py      # 知识库 CRUD + KB权限 + 用户覆盖 + RAG配置
+│   │   │   ├── documents.py            # 文档上传/列表/审核/发布/下架/重试
+│   │   │   ├── enterprise_rag.py       # 企业 RAG 流式问答（SSE）
+│   │   │   ├── personal_rag.py         # 个人 RAG 流式问答（SSE）
+│   │   │   ├── sessions.py             # 会话列表/详情/删除 + 消息反馈
+│   │   │   ├── model_configs.py        # LLM 模型配置 CRUD
+│   │   │   ├── audit_logs.py           # 审计日志查询
+│   │   │   ├── knowledge_gaps.py       # 知识缺口管理
+│   │   │   ├── evaluations.py          # RAG 评测（数据集 + 评测记录）
+│   │   │   └── monitor.py              # 系统监控指标
+│   │   ├── services/                   # 15 个服务模块
+│   │   │   ├── langgraph_workflow.py   # LangGraph RAG 编排（核心）
+│   │   │   ├── retrieval_service.py    # 混合检索 + RRF + Rerank + Parent扩展
+│   │   │   ├── query_rewrite.py        # Query Rewrite 查询改写/拆分
+│   │   │   ├── contextual_retrieval.py # Contextual Retrieval 上下文描述生成
+│   │   │   ├── embedding_service.py    # bge-m3 向量化
+│   │   │   ├── rerank_service.py       # bge-reranker-v2-m3 精排
+│   │   │   ├── milvus_service.py       # Milvus 向量 CRUD
+│   │   │   ├── llm_service.py          # LLM 模型工厂 + 流式生成
+│   │   │   ├── kb_access.py            # KB 级权限访问解析
+│   │   │   ├── file_parser.py          # 6 种格式文档解析
+│   │   │   ├── chunking.py             # Parent-Child 分块 + chunk_hash
+│   │   │   ├── minio_service.py        # 对象存储
+│   │   │   ├── metrics_service.py      # 内存指标收集
+│   │   │   ├── audit_service.py        # 审计日志写入
+│   │   │   └── evaluation_service.py   # RAG 评测逻辑
+│   │   ├── schemas/                    # Pydantic 请求/响应模型
+│   │   └── workers/                    # 异步任务 Worker
+│   │       └── main.py                 # 文档解析 + Embedding（轮询处理）
+│   ├── requirements.txt
+│   ├── requirements-docker.txt
 │   └── Dockerfile
 ├── frontend/
-│   ├── app/                         # 16 个页面路由
-│   │   ├── login/, dashboard/
-│   │   ├── enterprise-rag/, personal-rag/
-│   │   ├── users/, departments/
-│   │   ├── knowledge-bases/, documents/, review/
-│   │   ├── model-configs/, rag-configs/
-│   │   ├── audit-logs/, knowledge-gaps/
-│   │   └── evaluations/, monitor/
+│   ├── app/                            # 17 个页面路由
+│   │   ├── login/                      # 登录
+│   │   ├── dashboard/                  # 工作台
+│   │   ├── enterprise-rag/             # 企业 RAG 聊天页
+│   │   ├── personal-rag/               # 个人 RAG 聊天页
+│   │   ├── users/                      # 用户管理（含部门选择）
+│   │   ├── departments/                # 部门管理（含成员管理）
+│   │   ├── permissions/                # 角色权限管理
+│   │   ├── knowledge-bases/            # 知识库管理（含权限分配）
+│   │   ├── documents/                  # 文档管理
+│   │   ├── review/                     # 文档审核
+│   │   ├── model-configs/              # 模型配置
+│   │   ├── rag-configs/                # RAG 参数配置
+│   │   ├── audit-logs/                 # 审计日志
+│   │   ├── knowledge-gaps/             # 知识缺口管理
+│   │   ├── evaluations/                # RAG 评测
+│   │   └── monitor/                    # 系统监控
 │   ├── components/
-│   │   ├── chat/                    # 聊天组件（面板/来源卡片/会话列表）
-│   │   └── layout/                  # 管理后台布局
-│   ├── lib/                         # API 客户端、认证、SSE 流式
-│   └── types/                       # TypeScript 类型
+│   │   ├── chat/                       # 聊天面板、来源卡片、会话列表、ThinkBlock
+│   │   └── layout/                     # 管理后台布局（权限过滤侧栏）
+│   ├── lib/                            # API 客户端（JWT自动注入+刷新）、认证、SSE 解析
+│   └── types/                          # TypeScript 类型定义
+├── models/                             # bge-m3 + bge-reranker-v2-m3 模型文件（gitignore）
 ├── docker-compose.yml
-├── .env
-├── BACKUP.md                        # 备份恢复方案
-├── 企业级RAG系统开发文档.md
+├── .env.example
+├── CLAUDE.md                           # AI 辅助开发参考
+├── 思路.md                             # 系统代码流转路径详解
 └── README.md
 ```
+
+---
 
 ## API 清单
 
 ### 认证
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/auth/login` | 登录（限流：5次/min/用户，20次/min/IP） |
-| POST | `/api/auth/refresh` | 刷新 Token |
-| POST | `/api/auth/logout` | 退出 |
-| GET | `/api/auth/me` | 当前用户信息 |
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| POST | `/api/auth/login` | 公开 | 登录（限流：5次/min/用户，20次/min/IP） |
+| POST | `/api/auth/refresh` | 公开 | 刷新 Access Token |
+| POST | `/api/auth/logout` | 需登录 | 退出 |
+| GET | `/api/auth/me` | 需登录 | 当前用户信息（含角色、部门） |
 
 ### 用户与部门
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET/POST | `/api/users` | 用户列表 / 创建 |
-| GET/PATCH/DELETE | `/api/users/{id}` | 用户详情 / 更新 / 删除 |
-| PUT | `/api/users/{id}/password` | 修改密码 |
-| PATCH | `/api/users/{id}/personal-rag` | 切换个人 RAG |
-| GET/POST | `/api/departments` | 部门列表 / 创建 |
-| PATCH/DELETE | `/api/departments/{id}` | 更新 / 删除部门 |
-| POST/DELETE | `/api/departments/{id}/members` | 添加 / 移除成员 |
-| GET | `/api/roles` | 角色列表 |
-| GET | `/api/roles/permissions` | 权限列表 |
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET/POST | `/api/users` | manage_user / Admin | 用户列表 / 创建 |
+| GET/PATCH/DELETE | `/api/users/{id}` | Admin | 用户详情 / 更新（含角色、部门） / 删除 |
+| PUT | `/api/users/{id}/password` | 本人或 Admin | 修改密码 |
+| PATCH | `/api/users/{id}/personal-rag` | Admin | 切换个人 RAG 开关 |
+| GET/POST | `/api/departments` | 需登录 / Admin | 部门列表（含成员数） / 创建 |
+| GET/PATCH/DELETE | `/api/departments/{id}` | 需登录 / Admin | 部门详情 / 更新 / 删除 |
+| POST/DELETE | `/api/departments/{id}/members` | 需登录 | 添加 M2M 成员 / 移除成员 |
+| GET | `/api/roles` | 需登录 | 角色列表 |
+| GET | `/api/roles/permissions` | 需登录 | 系统权限码列表 |
 
 ### 知识库与文档
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET/POST | `/api/knowledge-bases` | 知识库列表 / 创建 |
-| GET/PATCH/DELETE | `/api/knowledge-bases/{id}` | 详情 / 更新 / 删除 |
-| POST | `/api/knowledge-bases/{id}/permissions` | 分配权限 |
-| POST | `/api/knowledge-bases/{id}/user-overrides` | 用户权限覆盖 |
-| GET/PATCH | `/api/knowledge-bases/{id}/rag-config` | RAG 参数配置 |
-| POST | `/api/documents/upload` | 上传文档（txt/md/pdf/docx/xlsx/pptx，≤100MB） |
-| GET | `/api/documents` | 文档列表 |
-| GET/DELETE | `/api/documents/{id}` | 文档详情 / 删除 |
-| GET | `/api/documents/{id}/versions` | 版本历史 |
-| GET | `/api/documents/{id}/preview` | 文件预览 URL |
-| GET | `/api/documents/{id}/chunks` | Chunk 预览 |
-| POST | `/api/documents/{id}/review` | 审核（approve/reject） |
-| POST | `/api/documents/{id}/publish` | 发布 |
-| POST | `/api/documents/{id}/offline` | 下架 |
-| POST | `/api/documents/{id}/retry` | 重试处理 |
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/api/knowledge-bases` | 需登录 | KB 列表（企业全部 + 个人自己的） |
+| GET | `/api/knowledge-bases/accessible` | 需登录 | 当前用户有权查询的 KB（权限过滤后） |
+| POST | `/api/knowledge-bases` | Admin | 创建知识库 |
+| GET/PATCH/DELETE | `/api/knowledge-bases/{id}` | 需登录 / Admin / Admin | KB 详情 / 更新 / 删除 |
+| GET/POST/DELETE | `/api/knowledge-bases/{id}/permissions` | 需登录 / Admin / Admin | KB 权限列表 / 分配 / 移除 |
+| GET/POST/DELETE | `/api/knowledge-bases/{id}/user-overrides` | 需登录 / Admin / Admin | 用户覆盖列表 / 添加 / 移除 |
+| GET/PATCH | `/api/knowledge-bases/{id}/rag-config` | 需登录 | RAG 参数配置 |
+| POST | `/api/documents/upload` | upload_document | 上传文档（txt/md/pdf/docx/xlsx/pptx，≤100MB） |
+| GET | `/api/documents` | 需登录 | 文档列表 |
+| GET/DELETE | `/api/documents/{id}` | 需登录 | 文档详情 / 删除 |
+| GET | `/api/documents/{id}/preview` | 需登录 | 文件预览 URL |
+| GET | `/api/documents/{id}/chunks` | 需登录 | Chunk 列表 |
+| POST | `/api/documents/{id}/review` | review_document | 审核（approve/reject） |
+| POST | `/api/documents/{id}/publish` | publish_document | 发布（激活 chunk + 创建 embed 任务） |
+| POST | `/api/documents/{id}/offline` | 需登录 | 下架 |
+| POST | `/api/documents/{id}/retry` | 需登录 | 重试处理 |
 
 ### RAG 问答与会话
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/enterprise-rag/chat` | 企业 RAG 问答（非流式） |
 | POST | `/api/enterprise-rag/chat/stream` | 企业 RAG 流式问答（SSE） |
-| POST | `/api/personal-rag/chat` | 个人 RAG 问答（非流式） |
 | POST | `/api/personal-rag/chat/stream` | 个人 RAG 流式问答（SSE） |
-| GET | `/api/sessions?kb_type=enterprise` | 会话列表 |
-| GET/DELETE | `/api/sessions/{id}` | 会话详情 / 删除 |
-| POST | `/api/messages/{id}/feedback` | 点赞/点踩反馈 |
+| GET | `/api/sessions?kb_type=enterprise`&#124;`personal` | 会话列表 |
+| GET/DELETE | `/api/sessions/{id}` | 会话详情（含消息） / 删除 |
+| POST | `/api/messages/{id}/feedback` | 消息反馈（like/dislike） |
 
-### 模型配置
+### 模型配置、审计、缺口、评测、监控
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET/POST | `/api/admin/models` | 模型列表 / 新增 |
-| PATCH/DELETE | `/api/admin/models/{id}` | 更新 / 删除 |
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET/POST | `/api/admin/models` | manage_model_config | LLM 模型配置列表 / 新增 |
+| PATCH/DELETE | `/api/admin/models/{id}` | manage_model_config | 更新 / 删除 |
+| GET | `/api/admin/audit-logs` | view_audit_logs | 审计日志查询（支持 action/user_id 过滤） |
+| GET | `/api/knowledge-gaps` | 需登录 | 知识缺口列表 |
+| PATCH | `/api/knowledge-gaps/{id}` | 需登录 | 更新缺口状态/备注 |
+| POST | `/api/knowledge-gaps/{id}/resolve` | 需登录 | 标记已解决 |
+| GET/POST | `/api/admin/evaluations/datasets` | 需登录 | 评测集列表 / 创建 |
+| DELETE | `/api/admin/evaluations/datasets/{id}` | 需登录 | 删除评测集 |
+| GET/POST | `/api/admin/evaluations/runs` | 需登录 | 评测记录 / 启动 |
+| GET | `/api/admin/evaluations/runs/{id}` | 需登录 | 评测详情 |
+| GET | `/api/admin/monitor` | 需登录 | 系统监控指标（今日调用/延迟/低置信度/错误） |
+| POST | `/api/admin/monitor/reset` | 需登录 | 重置指标 |
 
-系统优先使用 DB 中 `is_default=true` 且 `enabled=true` 的 chat 模型配置；无 DB 配置时回退 `.env`。
+LLM 配置优先级：DB `model_configs` 表 `is_default=true` 且 `enabled=true` → 回退 `.env`。
 
-### 审计、缺口、评测、监控
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/admin/audit-logs` | 审计日志（支持 action/user_id 过滤） |
-| GET | `/api/knowledge-gaps` | 知识缺口列表 |
-| PATCH | `/api/knowledge-gaps/{id}` | 更新缺口状态/备注 |
-| POST | `/api/knowledge-gaps/{id}/resolve` | 标记已解决 |
-| GET/POST | `/api/admin/evaluations/datasets` | 评测集列表 / 创建 |
-| DELETE | `/api/admin/evaluations/datasets/{id}` | 删除评测集 |
-| GET/POST | `/api/admin/evaluations/runs` | 评测记录 / 启动 |
-| GET | `/api/admin/evaluations/runs/{id}` | 评测详情（逐题结果） |
-| GET | `/api/admin/monitor` | 系统监控指标 |
-| POST | `/api/admin/monitor/reset` | 重置指标 |
-
-### 系统
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/health` | 健康检查 |
-| GET | `/api/health/db` | 数据库连接检查 |
+---
 
 ## 文档生命周期
 
 ```
-用户上传 → MinIO 存储 → Worker 异步解析 → Parent-Child Chunking
-→ pending_review → Reviewer 审核通过 → Embedding 向量化
-→ Milvus 入库 → published → 可检索
+用户上传 → MinIO 存储
+     ↓
+Worker 异步解析（txt/md/pdf/docx/xlsx/pptx）
+     ↓
+Parent-Child Chunking（700/1600 tokens，chunk_hash 指纹）
+     ↓
+pending_review → Reviewer 审核
+     ├─ reject → 打回
+     └─ approve → 发布（is_active=true）
+                      ↓
+              Worker Embedding（bge-m3，hash 匹配复用旧向量）
+                      ↓
+              Contextual Retrieval（若启用：LLM 生成上下文描述）
+                      ↓
+              Milvus 向量入库 → published → 可检索
 ```
+
+关键特性：**增量索引** — 文档更新时仅对内容变更的 chunk 做 embedding，hash 未变的 chunk 复用旧向量，大幅减少 embedding 耗时。
+
+---
 
 ## RAG 检索链路
 
 ```
 用户问题
-↓
-Query Rewrite（LLM 改写，可配置关闭）
-↓
-多路召回: Milvus 向量检索 + PostgreSQL pg_trgm 全文检索
-↓
-RRF 融合排序
-↓
-bge-reranker-v2-m3 精排（可配置关闭）
-↓
-低置信度检测（score < threshold → 拒答 + 知识缺口记录）
-↓
+  ↓
+Query Rewrite（LLM 检测复合问题 → 拆分子问题 OR 改写多角度查询）
+  ↓
+多路召回：Milvus 向量检索(COSINE) + PostgreSQL pg_trgm 全文检索(similarity+ILIKE)
+  ↓
+RRF 融合排序（k=60）
+  ↓
+bge-reranker-v2-m3 精排（Cross-encoder，保留 top_n=6）
+  ↓
+置信度检测（max_score < 0.45 → low_confidence）
+  ↓
 Parent Chunk 回填（child → parent 上下文扩展）
-↓
-LangGraph 编排（状态图: rewrite→retrieve→rerank→check→expand→generate）
-↓
-SSE 流式生成 + 审计记录
-↓
-返回: 答案 + 来源引用（文档名/页码/相似度/原文）
+  ↓
+LangGraph 编排（状态图: rewrite → retrieve → rerank → check_confidence → expand/reject）
+  ↓
+LLM 流式生成（SSE token-by-token）
+  ↓
+返回：答案 + 来源引用 [编号](文档名/章节/相似度)
+  ↓
+保存会话 + 审计日志 +（低置信度时）知识缺口记录
 ```
+
+**SSE 事件类型：** `status`（节点进度） → `answer`（LLM token） → `sources`（来源列表） → `done`（完成 + session_id + low_confidence 标志）
+
+---
 
 ## 权限体系
 
-### 5 个角色
+### 双层权限模型
 
-| 角色 | 说明 |
-|------|------|
-| SuperAdmin | 超级管理员，系统最高权限 |
-| Admin | 企业管理员 |
-| KBAdmin | 知识库管理员 |
-| Reviewer | 文档审核员 |
-| User | 普通用户 |
+**系统级 RBAC** — 控制功能操作：
 
-### 9 个权限
+| 角色 | 拥有的权限 |
+|------|-----------|
+| SuperAdmin | 全部 9 个权限 |
+| Admin | manage_user, manage_department, manage_knowledge_base, manage_model_config, view_audit_logs, query_knowledge_base |
+| Reviewer | review_document, publish_document, query_knowledge_base |
+| User | query_knowledge_base |
+| userin | query_knowledge_base（个人 RAG 专用） |
 
-`manage_user` · `manage_department` · `manage_knowledge_base` · `upload_document` · `review_document` · `publish_document` · `query_knowledge_base` · `manage_model_config` · `view_audit_logs`
+**KB 级权限** — 控制知识库访问：
 
-权限模型：**RBAC**（控制操作）+ **ABAC**（控制数据访问）。
+```
+KnowledgeBasePermission(knowledge_base_id,  permission_type,
+                        role_id?,           department_id?,       user_id?)
+                              ↑                   ↑                   ↑
+                         按角色授权            按部门授权           按用户授权
+
+UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆盖
+```
+
+解析逻辑（`kb_access.py`）：
+1. Admin/SuperAdmin → 可访问全部 KB
+2. 无权限配置的 KB → 全员开放
+3. 有权限配置的 KB → 匹配 user_id / department_id（FK+M2M）/ role_id
+4. UserKBOverride：deny 剔除，allow 放行
+
+**部门-用户连接：**
+- `User.department_id` (FK，直属部门)
+- `department_members` (M2M，多部门成员关系)
+- KB 访问解析时同时检查两路
+
+---
 
 ## RAG 参数配置
 
@@ -294,37 +371,56 @@ SSE 流式生成 + 审计记录
 |------|--------|------|
 | `chunk_size` | 700 | Child chunk 大小 (tokens) |
 | `chunk_overlap` | 100 | Child chunk 重叠 |
-| `parent_chunk_size` | 2000 | Parent chunk 大小 |
-| `top_k_vector` | 10 | 向量检索返回数 |
-| `top_k_bm25` | 10 | 关键词检索返回数 |
+| `parent_chunk_size` | 1600 | Parent chunk 大小 |
+| `top_k_vector` | 5 | 向量检索返回数 |
+| `top_k_bm25` | 5 | 关键词检索返回数 |
 | `rrf_k` | 60 | RRF 融合参数 |
-| `rerank_top_n` | 5 | Rerank 后保留数 |
-| `score_threshold` | 0.3 | 低置信度阈值 |
-| `enable_query_rewrite` | true | 查询改写开关 |
+| `rerank_top_n` | 6 | Rerank 后保留数 |
+| `score_threshold` | 0.45 | 低置信度阈值 |
+| `enable_query_rewrite` | true | Query Rewrite 开关 |
 | `enable_rerank` | true | Rerank 开关 |
-| `enable_contextual_retrieval` | false | 上下文检索开关 |
+| `enable_contextual_retrieval` | false | Contextual Retrieval 开关（LLM 生成 chunk 上下文描述） |
+| `enable_parent_child_chunking` | true | Parent-Child Chunking 开关 |
 
-## 开发进度
+---
 
-| Phase | 内容 | 状态 |
-|-------|------|------|
-| Phase 0 | 项目初始化 + Docker Compose 7 服务 | ✅ 完成 |
-| Phase 1 | 用户/部门/角色/权限 (JWT + RBAC + ABAC) | ✅ 完成 |
-| Phase 2 | 知识库管理 + 文档上传/版本管理 | ✅ 完成 |
-| Phase 3 | 文档解析 (6种格式) + Parent-Child Chunking | ✅ 完成 |
-| Phase 4 | 文档审核流程 + 发布/下架 | ✅ 完成 |
-| Phase 5 | bge-m3 Embedding + Milvus + pg_trgm + RRF 混合检索 | ✅ 完成 |
-| Phase 6 | Rerank + Contextual Retrieval + Query Rewrite + LLM 问答 + 拒答 | ✅ 完成 |
-| Phase 7 | LangGraph 编排 + SSE 流式 + 会话保存 + 聊天 UI | ✅ 完成 |
-| Phase 8 | 模型配置 + 审计日志 + 反馈(点赞/点踩) + 知识缺口管理 | ✅ 完成 |
-| Phase 9 | RAG 评测系统 + 监控指标 + 备份恢复方案 | ✅ 完成 |
+## 功能清单
+
+| 类别 | 功能 | 说明 |
+|------|------|------|
+| 文档 | 6 种格式解析 | txt / md / pdf / docx / xlsx / pptx |
+| 文档 | Parent-Child Chunking | 子块 700 token + 父块 1600 token |
+| 文档 | 增量索引 | chunk_hash 指纹匹配，仅对有变化的块做 embedding |
+| 文档 | Contextual Retrieval | LLM 生成 100-200 字 chunk 上下文描述，提升检索精度 |
+| 文档 | 生命周期管理 | 上传→解析→审核→发布→入库，含版本管理 |
+| 检索 | Query Rewrite | LLM 检测复合问题并拆分 / 改写多角度查询 |
+| 检索 | 混合检索 | Milvus 向量 + pg_trgm 关键词 → RRF 融合 |
+| 检索 | Rerank 精排 | bge-reranker-v2-m3 Cross-encoder |
+| 检索 | 置信度检测 | score < 0.45 → 低置信度 + 知识缺口记录 |
+| 检索 | Parent Chunk 回填 | 子块检索结果自动加载父块上下文 |
+| 问答 | 流式 SSE | token-by-token 实时输出，5 种事件类型 |
+| 问答 | Think Block | `<think>` 思考过程自动折叠，可展开查看 |
+| 问答 | 来源引用 | `[编号] 文档名` 带 hover 详情卡片 |
+| 权限 | 系统 RBAC | 5 角色 × 9 权限，前后端双重检查 |
+| 权限 | KB 级权限 | 按角色/部门/用户 + 7 种权限类型 + 用户级覆盖 |
+| 权限 | 部门连接 | User FK + M2M 双路部门归属 |
+| 管理 | 会话管理 | 创建/列表/删除/反馈(like/dislike) |
+| 管理 | 审计日志 | 全量操作记录，按 action/user_id 过滤 |
+| 管理 | 知识缺口 | 低置信度自动记录，可标记已解决 |
+| 管理 | 模型配置 | DB 存储 LLM 配置，支持多 provider，API Key 加密 |
+| 运维 | 监控指标 | 今日调用/平均延迟/p95/低置信度/错误数，5s 自动刷新 |
+| 运维 | RAG 评测 | 数据集 + 评测记录，逐题评分 |
+| 运维 | 限流 | Redis 登录限流（5次/min/用户，20次/min/IP） |
+
+---
 
 ## 注意事项
 
 - **JWT Secret**: 生产环境务必修改 `.env` 中 `JWT_SECRET_KEY`
-- **LLM API Key**: DB 模型配置优先于 `.env`，API Key 加密存储于 `model_configs` 表
-- **文件上传**: 仅支持 txt/md/pdf/docx/xlsx/pptx，上限 100MB
-- **登录限流**: Redis 实现，每用户 5 次/min，每 IP 20 次/min
-- **Docker 限制**: embedding 和 rerank 模型需在本地运行（Docker 内不含 torch）
-- **Milvus 向量**: 需本地运行 `python backend/app/services/index_worker.py` 做向量入库
-- **备份方案**: 详见 `BACKUP.md`（PostgreSQL pg_dump + MinIO mc mirror + Milvus 集合导出）
+- **模型文件**: `models/` 目录已在 `.gitignore` 中排除，需手动下载 bge-m3 + bge-reranker-v2-m3
+- **LLM 配置**: DB 模型配置优先于 `.env`，API Key 加密存储于 `model_configs` 表
+- **文件上传**: 仅支持 txt/md/pdf/docx/xlsx/pptx，单文件上限 100MB
+- **Docker volume**: backend 和 frontend 都挂载源码，代码改动即改即生效（新增前端页面需 `docker compose restart frontend`）
+- **种子数据**: 首次运行 `seed.py` 会清库重建；已有数据时跳过
+- **数据库迁移**: 新增 DB 列需手动执行 SQL
+- **监控指标**: 存储在进程内存中，重启后清零。Worker 和 Backend 是独立进程，指标分别维护
