@@ -26,28 +26,27 @@
 
 ### 环境要求
 
-- Docker & Docker Compose
-- 8GB+ 内存（bge-m3 模型约 2GB）
+- Docker Desktop（含 Docker Compose v2）
+- Python 3.10+（仅用于模型下载脚本）
+- 8GB+ 内存，20GB+ 磁盘空间
 
-### 1. 下载模型文件
+### 一键部署（推荐）
 
-从 [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) 和 [BAAI/bge-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3) 下载模型文件，放置到 `models/` 目录：
+```bash
+# Linux / macOS
+bash scripts/setup.sh
 
-```
-models/
-├── bge-m3/                    # embedding 模型
-│   ├── config.json
-│   ├── model.safetensors
-│   ├── tokenizer.json
-│   └── ...
-└── bge-reranker-v2-m3/       # rerank 模型
-    ├── config.json
-    ├── model.safetensors
-    ├── tokenizer.json
-    └── ...
+# Windows PowerShell
+.\scripts\setup.ps1
 ```
 
-### 2. 配置环境变量
+脚本自动完成：`.env` 检查 → 模型下载（`bge-m3` + `bge-reranker-v2-m3`，约 3GB）→ Docker 构建启动 → 健康检查等待 → 种子数据初始化。
+
+### 分步部署
+
+如需手动控制每一步：
+
+**1. 配置环境变量**
 
 ```bash
 cp .env.example .env
@@ -63,15 +62,40 @@ LLM_MODEL_NAME=MiniMax-M2.7
 LLM_TEMPERATURE=0.1
 ```
 
-### 3. 启动全部服务
+**2. 下载模型文件**
+
+```bash
+python scripts/download_models.py
+```
+
+模型存放于 `models/` 目录（已在 `.gitignore` 中排除）：
+
+```
+models/
+├── bge-m3/                    # embedding 模型（~2GB）
+└── bge-reranker-v2-m3/       # rerank 模型（~1GB）
+```
+
+**3. 启动服务**
 
 ```bash
 docker compose up -d
 ```
 
-首次启动会自动拉取镜像并构建。共 8 个服务：etcd、minio、milvus、postgres、redis、backend、worker、frontend。
+首次启动会拉取基础镜像并构建，后端首次构建约需 5-10 分钟（安装 PyTorch CPU 版 + sentence-transformers 等依赖）。共 8 个服务：
 
-### 4. 初始化种子数据
+| 服务 | 用途 | 端口 |
+|------|------|------|
+| etcd | Milvus 元数据存储 | — |
+| minio | Milvus 对象存储 + RAG 文档存储 | 9000/9001 |
+| milvus | 向量数据库 | 19530 |
+| postgres | 业务数据库 | 5432 |
+| redis | 缓存 & 限流 | 6379 |
+| backend | FastAPI 后端 | 8000 |
+| worker | 文档解析 + Embedding 异步任务 | — |
+| frontend | Next.js 前端 | 3000 |
+
+**4. 初始化种子数据**
 
 ```bash
 docker compose exec backend PYTHONPATH=/app python app/db/seed.py
@@ -79,7 +103,7 @@ docker compose exec backend PYTHONPATH=/app python app/db/seed.py
 
 创建 5 个角色、9 个权限、5 个默认用户。
 
-### 5. 访问系统
+### 访问系统
 
 | 服务 | 地址 |
 |------|------|
@@ -414,13 +438,40 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆�
 
 ---
 
-## 注意事项
+## 注意事项 & 故障排除
 
-- **JWT Secret**: 生产环境务必修改 `.env` 中 `JWT_SECRET_KEY`
-- **模型文件**: `models/` 目录已在 `.gitignore` 中排除，需手动下载 bge-m3 + bge-reranker-v2-m3
-- **LLM 配置**: DB 模型配置优先于 `.env`，API Key 加密存储于 `model_configs` 表
-- **文件上传**: 仅支持 txt/md/pdf/docx/xlsx/pptx，单文件上限 100MB
-- **Docker volume**: backend 和 frontend 都挂载源码，代码改动即改即生效（新增前端页面需 `docker compose restart frontend`）
-- **种子数据**: 首次运行 `seed.py` 会清库重建；已有数据时跳过
-- **数据库迁移**: 新增 DB 列需手动执行 SQL
-- **监控指标**: 存储在进程内存中，重启后清零。Worker 和 Backend 是独立进程，指标分别维护
+### 安全
+- 生产环境务必修改 `.env` 中 `JWT_SECRET_KEY`（可随机生成：`openssl rand -hex 32`）
+- LLM API Key 在 DB `model_configs` 表中加密存储，`.env` 中的 Key 仅用于开发
+
+### 模型
+- 模型文件约 3GB，首次下载需耐心等待
+- 若 HuggingFace 下载慢，可设置镜像：`export HF_ENDPOINT=https://hf-mirror.com`
+- 模型路径可由环境变量覆盖：`BGE_M3_PATH`、`RERANKER_PATH`
+
+### Docker
+- `backend` 和 `frontend` 挂载源码目录，代码改动即改即生效（新增前端页面需重启 `docker compose restart frontend`）
+- `.env` 变更后需重建容器：`docker compose up -d --force-recreate backend worker`
+- CPU 版 PyTorch 首次构建约需 5-10 分钟（安装 torch + sentence-transformers）
+- Worker 内存建议 4GB+（bge-m3 模型加载需约 2GB）
+
+### 常见问题
+
+| 问题 | 排查方法 |
+|------|----------|
+| 找不到模型 | 确认 `models/bge-m3/config.json` 存在；运行 `python scripts/download_models.py` |
+| Milvus 连接失败 | `docker compose logs milvus`，确认 etcd/minio 都 healthy |
+| 向量检索为空 | 确认文档已发布 + Worker 已完成 embedding：`docker compose logs worker` |
+| LLM 不回答 | 检查 `.env` 中 `LLM_API_KEY`；或通过 `/model-configs` 页面配置 DB 模型 |
+| 前端 401 | Token 过期，刷新页面重新登录 |
+| 端口冲突 | 修改 `docker-compose.yml` 中端口映射，或停用占用端口的本地服务 |
+
+### 数据库
+- 种子数据首次运行会清库重建标记为 `is_system` 的角色/权限；已有数据时自动跳过
+- 新增 DB 列需手动执行 SQL（无自动 migration）：`docker compose exec postgres psql -U raguser -d ragsystem -c "ALTER TABLE ..."`
+- 备份方案：`pg_dump` + MinIO `mc mirror` + Milvus 集合导出
+
+### 监控
+- 监控指标存储在进程内存中，重启后清零
+- Backend 和 Worker 是独立进程，各自维护指标。当前监控 API 仅暴露 Backend 指标
+- 前端每 5s 自动轮询刷新
