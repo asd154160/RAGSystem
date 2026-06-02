@@ -373,15 +373,7 @@ async def review_document(
     if data.action == "approve":
         version.status = DocStatus.approved
         doc.status = DocStatus.approved
-        # Create indexing task (Phase 5 will process)
-        task = DocumentProcessingTask(
-            id=str(uuid.uuid4()),
-            document_version_id=version.id,
-            task_type=TaskType.embed,
-            status=TaskStatus.pending,
-        )
-        db.add(task)
-        msg = "审核通过，已创建向量入库任务"
+        msg = "审核通过"
     else:
         version.status = DocStatus.rejected
         doc.status = DocStatus.rejected
@@ -438,9 +430,18 @@ async def publish_document(
     version.status = DocStatus.published
     version.is_active = True
     doc.status = DocStatus.published
+
+    # Create embed task — chunks are now active, worker will pick it up
+    embed_task = DocumentProcessingTask(
+        id=str(uuid.uuid4()),
+        document_version_id=version.id,
+        task_type=TaskType.embed,
+        status=TaskStatus.pending,
+    )
+    db.add(embed_task)
     await db.commit()
 
-    return {"message": "文档已发布", "published_chunks": len(chunks)}
+    return {"message": "文档已发布，向量入库任务已创建", "published_chunks": len(chunks)}
 
 
 @router.post("/{doc_id}/offline")
