@@ -16,6 +16,7 @@ interface NavItem {
   label: string;
   icon: any;
   permission?: string;
+  permissions?: string[];  // any one of these is sufficient
   roles?: string[];
 }
 
@@ -25,7 +26,7 @@ const navItems: NavItem[] = [
   { href: "/departments", label: "部门管理", icon: Building2, permission: "manage_department" },
   { href: "/permissions", label: "权限管理", icon: Shield, roles: ["SuperAdmin", "Admin"] },
   { href: "/knowledge-bases", label: "知识库", icon: Database, permission: "manage_knowledge_base" },
-  { href: "/documents", label: "文档管理", icon: FileText, permission: "upload_document" },
+  { href: "/documents", label: "文档管理", icon: FileText, permissions: ["upload_document", "review_document", "publish_document"] },
   { href: "/review", label: "文档审核", icon: CheckCircle, permission: "review_document" },
   { href: "/model-configs", label: "模型配置", icon: Cpu, permission: "manage_model_config" },
   { href: "/rag-configs", label: "RAG参数", icon: Sliders, permission: "manage_knowledge_base" },
@@ -59,12 +60,14 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const currentItem = navItems.find(n => pathname.startsWith(n.href));
   const canAccess = !currentItem || (
     (!currentItem.permission || hasPermission(currentItem.permission)) &&
+    (!currentItem.permissions || currentItem.permissions.some(p => hasPermission(p))) &&
     (!currentItem.roles || hasRole(...currentItem.roles))
   );
 
   // Filter visible nav items
   const visibleItems = navItems.filter(item => {
     if (item.permission && !hasPermission(item.permission)) return false;
+    if (item.permissions && !item.permissions.some(p => hasPermission(p))) return false;
     if (item.roles && !hasRole(...item.roles)) return false;
     return true;
   });
@@ -120,7 +123,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
               <div className="text-center">
                 <Shield size={48} className="mx-auto mb-3 text-gray-300" />
                 <p className="text-gray-500">无权访问此页面</p>
-                <p className="mt-1 text-sm text-gray-400">需要权限：{currentItem?.permission || currentItem?.roles?.join(", ")}</p>
+                <p className="mt-1 text-sm text-gray-400">需要权限：{currentItem?.permission || currentItem?.permissions?.join(" / ") || currentItem?.roles?.join(", ")}</p>
               </div>
             </div>
           )}

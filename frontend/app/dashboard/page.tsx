@@ -86,7 +86,7 @@ function DashboardInner() {
         </div>
 
         {/* Admin quick links */}
-        {(hasPermission("manage_user") || hasPermission("manage_model_config")) && (
+        {(hasPermission("manage_user") || hasPermission("manage_model_config") || hasPermission("review_document") || hasPermission("manage_knowledge_base") || hasPermission("view_audit_logs")) && (
           <div className="mt-10">
             <h3 className="mb-4 text-sm font-semibold text-gray-500">管理后台</h3>
             <div className="flex flex-wrap gap-2">

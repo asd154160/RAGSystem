@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import AdminLayout from "@/components/layout/admin-layout";
 import { apiGet, apiPost, apiFetch } from "@/lib/api";
-import { Check, X, FileText, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, X, FileText, ChevronDown, ChevronRight, Send } from "lucide-react";
 
 interface DocumentItem {
   id: string;
@@ -37,7 +37,7 @@ export default function ReviewPage() {
   const fetchDocs = useCallback(async () => {
     try {
       const data = await apiGet<DocumentItem[]>("/api/documents");
-      setDocs(data.filter(d => d.status === "pending_review"));
+      setDocs(data.filter(d => d.status === "pending_review" || d.status === "approved"));
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }, []);
@@ -73,6 +73,18 @@ export default function ReviewPage() {
         fetchDocs();
       }
     } catch (err) { setMessage("操作失败"); }
+    finally { setProcessing(false); }
+  }
+
+  async function handlePublish(docId: string) {
+    setProcessing(true);
+    setMessage("");
+    try {
+      const res = await apiFetch(`/api/documents/${docId}/publish`, { method: "POST" });
+      const data = await res.json();
+      setMessage(data.message || data.detail || "操作完成");
+      if (res.ok) fetchDocs();
+    } catch (err) { setMessage("发布失败"); }
     finally { setProcessing(false); }
   }
 
@@ -117,26 +129,38 @@ export default function ReviewPage() {
                     </div>
                   </button>
                   <div className="flex items-center gap-2">
-                    <input
-                      className="rounded-md border px-2 py-1 text-xs w-40"
-                      placeholder="驳回原因（必填）"
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
-                    />
-                    <button
-                      onClick={() => handleReview(doc.id, "approve")}
-                      disabled={processing}
-                      className="flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
-                    >
-                      <Check size={14} />通过
-                    </button>
-                    <button
-                      onClick={() => handleReview(doc.id, "reject")}
-                      disabled={processing}
-                      className="flex items-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                    >
-                      <X size={14} />驳回
-                    </button>
+                    {doc.status === "pending_review" ? (
+                      <>
+                        <input
+                          className="rounded-md border px-2 py-1 text-xs w-40"
+                          placeholder="驳回原因（必填）"
+                          value={reason}
+                          onChange={(e) => setReason(e.target.value)}
+                        />
+                        <button
+                          onClick={() => handleReview(doc.id, "approve")}
+                          disabled={processing}
+                          className="flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                        >
+                          <Check size={14} />通过
+                        </button>
+                        <button
+                          onClick={() => handleReview(doc.id, "reject")}
+                          disabled={processing}
+                          className="flex items-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                        >
+                          <X size={14} />驳回
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => handlePublish(doc.id)}
+                        disabled={processing}
+                        className="flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        <Send size={14} />发布
+                      </button>
+                    )}
                   </div>
                 </div>
 
