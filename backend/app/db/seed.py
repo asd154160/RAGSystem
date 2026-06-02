@@ -77,22 +77,30 @@ def seed():
             role_objs[role_name] = role
         db.flush()
 
-        superadmin = User(
-            id=str(uuid.uuid4()),
-            username="superadmin",
-            email="superadmin@ragsystem.local",
-            hashed_password=hash_password("admin123"),
-            is_active=True,
-            personal_rag_enabled=True,
-            roles=[role_objs["SuperAdmin"]],
-        )
-        db.add(superadmin)
+        default_users = [
+            ("superadmin", "superadmin@ragsystem.local", "admin123", "SuperAdmin", True),
+            ("admin",      "admin@ragsystem.local",      "admin123", "Admin",      False),
+            ("kbadmin",    "kbadmin@ragsystem.local",    "kbadmin123", "KBAdmin",   False),
+            ("reviewer",   "reviewer@ragsystem.local",   "reviewer123", "Reviewer",  False),
+            ("user",       "user@ragsystem.local",       "user123",   "User",       True),
+            ("userin",     "userin@ragsystem.local",     "userin123", "userin",     True),
+        ]
+        for username, email, password, role_name, personal_rag in default_users:
+            db.add(User(
+                id=str(uuid.uuid4()),
+                username=username,
+                email=email,
+                hashed_password=hash_password(password),
+                is_active=True,
+                personal_rag_enabled=personal_rag,
+                roles=[role_objs[role_name]],
+            ))
 
         db.commit()
         print("种子数据创建完成。")
-        print("  SuperAdmin 账号: superadmin / admin123")
-        print(f"  角色: {', '.join(ROLE_PERMISSIONS.keys())}")
-        print(f"  权限: {len(PERMISSION_DESCRIPTIONS)} 个")
+        print("  账号列表:")
+        for username, _, password, role_name, _ in default_users:
+            print(f"    {role_name:11s} {username} / {password}")
 
 
 if __name__ == "__main__":
