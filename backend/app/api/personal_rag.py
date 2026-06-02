@@ -35,9 +35,9 @@ async def _get_or_create_personal_kb(db: AsyncSession, current_user: User) -> Kn
             KnowledgeBase.type == "personal",
             KnowledgeBase.owner_user_id == current_user.id,
             KnowledgeBase.is_active == True,
-        )
+        ).limit(1)
     )
-    kb = result.scalar_one_or_none()
+    kb = result.scalars().first()
     if not kb:
         kb = KnowledgeBase(
             name=f"{current_user.username}的个人知识库",
