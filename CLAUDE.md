@@ -58,6 +58,29 @@ docker compose exec frontend npm run lint                        # ESLint (Next.
 | MinIO API | localhost:9000 |
 | MinIO Console | localhost:9001 |
 
+## 备份与恢复
+
+```bash
+# 全量备份（PostgreSQL + MinIO + Milvus）
+docker compose exec backend sh -c "cd /app && python scripts/backup.py -o /backups/manual"
+# 自动备份（backup-cron 容器，默认每 24h 一次，启动时立即执行）
+docker compose up -d backup-cron
+# 查看备份文件
+ls -la backups/
+# 校验备份完整性
+docker compose exec backend sh -c "cd /app && python scripts/restore.py --dry-run /backups/manual"
+# 恢复（⚠️ 会销毁现有数据）
+docker compose exec backend sh -c "cd /app && python scripts/restore.py --confirm /backups/manual"
+```
+
+| 备份组件 | 格式 | 内容 |
+|----------|------|------|
+| PostgreSQL | `pg_dump -Fc` (custom) | 全库，支持选择性恢复 |
+| MinIO | 文件系统镜像 | `rag-documents` bucket 所有文件 |
+| Milvus | JSON 分片文件 | chunk metadata（不含 embedding 向量） |
+
+> Milvus embedding 向量不在备份中（pymilvus 不支持批量导出向量）。恢复后需通过 worker 重新 embedding。
+
 ## 登录账号
 
 | 用户 | 密码 | 角色 |

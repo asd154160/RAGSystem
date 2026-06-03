@@ -39,6 +39,9 @@ Thumbs.db
 # HF models
 HF_model/
 
+# Backups
+backups/
+
 # Claude Code (local developer settings)
 .claude/
 
