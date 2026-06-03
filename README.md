@@ -331,7 +331,7 @@ Parent-Child Chunking（700/1600 tokens，chunk_hash 指纹）
                               ↓
                       Worker Embedding（bge-m3，hash 匹配复用旧向量）
                               ↓
-                      Contextual Retrieval（若启用：LLM 生成上下文描述）
+                      Contextual Retrieval（LLM 生成 chunk 上下文描述，固定环节）
                               ↓
                       Milvus 向量入库 → published → 可检索
 ```
@@ -509,7 +509,6 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆�
 | `score_threshold` | 0.45 | 低置信度阈值 |
 | `enable_query_rewrite` | true | Query Rewrite 开关 |
 | `enable_rerank` | true | Rerank 开关 |
-| `enable_contextual_retrieval` | false | Contextual Retrieval 开关（LLM 生成 chunk 上下文描述） |
 | `enable_parent_child_chunking` | true | Parent-Child Chunking 开关 |
 
 ---
@@ -521,7 +520,7 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆�
 | 文档 | 6 种格式解析 | txt / md / pdf / docx / xlsx / pptx |
 | 文档 | Parent-Child Chunking | 子块 700 token + 父块 1600 token |
 | 文档 | 增量索引 | chunk_hash 指纹匹配，仅对有变化的块做 embedding |
-| 文档 | Contextual Retrieval | LLM 生成 100-200 字 chunk 上下文描述，提升检索精度 |
+| 文档 | Contextual Retrieval | LLM 生成 100-200 字 chunk 上下文描述，内建固定环节，提升检索精度 |
 | 文档 | 生命周期管理 | 上传→解析→审核→发布→入库，含版本管理 |
 | 检索 | Query Rewrite | LLM 检测复合问题并拆分 / 改写多角度查询 |
 | 检索 | 混合检索 | Milvus 向量 + pg_trgm 关键词 → RRF 融合 |

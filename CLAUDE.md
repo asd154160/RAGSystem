@@ -120,8 +120,7 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
               │
 ┌─ Worker (独立进程) ───────────────────────────────────────┐
 │  workers/main.py: 异步轮询 doc_processing_tasks 表        │
-│  流程: parse → chunk → embed → insert Milvus              │
-│  Personal RAG 额外执行 contextual_retrieval chunk context  │
+│  流程: parse → chunk → contextual_retrieval → embed → insert Milvus │
 └───────────────────────────────────────────────────────────┘
 ```
 
@@ -172,7 +171,7 @@ Access Token (30 min) + Refresh Token (7 days)，JWT Bearer。前端 `api.ts` �
 | 知识库范围 | 企业级知识库（管理员管理） | 用户个人知识库（自动创建） |
 | 检索范围 | 用户有权限的 KB + 已发布文档 | 仅个人 KB，仅本人可见 |
 | 分块策略 | 标准 RecursiveTextSplitter | Parent-Child：检索小 chunk，回填大 parent |
-| 额外增强 | — | contextual_retrieval（生成 chunk 上下文前缀） |
+| 额外增强 | contextual_retrieval（生成 chunk 上下文前缀，内置固定） | contextual_retrieval（生成 chunk 上下文前缀，内置固定） |
 | API 入口 | `enterprise_rag.py` | `personal_rag.py` |
 | 路由前缀 | `/api/enterprise-rag` | `/api/personal-rag` |
 | 前端页面 | `/enterprise-rag` | `/personal-rag` |
