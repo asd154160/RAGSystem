@@ -93,7 +93,7 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 
 ## 技术栈
 
-后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | Redis（限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁） | Embedding bge-m3（Docker 内运行） | Rerank bge-reranker-v2-m3（Docker 内运行） | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
+后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | Redis（限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁） | Embedding bge-m3（Docker 内 GPU 运行） | Rerank bge-reranker-v2-m3（Docker 内 GPU 运行） | PyTorch 2.5.1+cu124 GPU 加速 | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
 
 ## 架构概览
 
@@ -130,6 +130,8 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 - **种子数据**：`docker compose exec backend python -m app.db.seed`（`SEED_VERSION` 版本控制：DB 中版本 < 代码版本时增量 upsert，版本一致则跳过；首次运行全量创建）
 - **向量入库**：Docker worker 自动处理 parse + chunk + embed 全流程，无需本地运行
 - **模型文件**：`models/` 目录需先运行 `python scripts/download_models.py` 从 HuggingFace 下载 bge-m3 + bge-reranker-v2-m3（约 3GB），然后通过 Docker volume 挂载到 `/app/models`
+- **PyTorch wheel**：`backend/whl/torch-2.5.1+cu124-cp312-cp312-linux_x86_64.whl`（867MB）需预先下载放入 `backend/whl/`，Dockerfile 从本地安装以加速构建。下载地址：https://download.pytorch.org/whl/cu124
+- **GPU 要求**：NVIDIA GPU（8GB+ VRAM）+ 驱动 550+ + CUDA 12.4+。Docker Desktop 需启用 WSL2 GPU 支持。backend 和 worker 容器配置了 `deploy.resources.reservations.devices` NVIDIA GPU
 - **LLM 配置**：DB 中 `model_configs` 表的 `is_default=true` 模型优先于 `.env`。无 DB 配置时回退 `.env` 的 `LLM_API_KEY`
 - **DB session 双模式**：`db/session.py` 提供 `async_session`（FastAPI 异步）和 `sync_session`（worker/Celery 同步），互不干扰
 
@@ -192,7 +194,8 @@ Query Rewrite → Redis 检索缓存命中? → 命中直接返回 / 未命中�
 | `backend/app/core/config.py` | pydantic-settings，`.env` 映射（带默认值） |
 | `backend/app/core/security.py` | JWT 生成/验证，`get_current_user`，`require_role`，`require_permission` |
 | `backend/app/db/session.py` | `async_session`（asyncpg）+ `sync_session`（psycopg2） |
-| `backend/app/db/seed.py` | 种子数据（5 角色 + 9 权限 + 6 用户），idempotent |
+| `backend/whl/` | PyTorch CUDA 12.4 本地 wheel（torch-2.5.1+cu124，867MB），构建时免下载 |
+| `backend/Dockerfile` | Docker 构建：本地 wheel 安装 PyTorch → 清华镜像安装其他依赖 |
 | `backend/app/workers/main.py` | 异步 Worker——轮询 document_processing_tasks，parse→chunk→embed→index |
 | `backend/app/services/retrieval_service.py` | 混合检索：Milvus 向量 + pg_trgm 关键词 + RRF 融合 |
 | `backend/app/services/langgraph_workflow.py` | LangGraph StateGraph：query_rewrite→retrieve→rerank→check→generate |

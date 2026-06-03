@@ -1,6 +1,6 @@
 # 一键部署脚本 (Windows PowerShell) — 从零到可用的 RAG 系统
 # 用法: .\scripts\setup.ps1
-# 环境要求: Docker Desktop, Python 3.10+
+# 环境要求: Docker Desktop (WSL2 GPU 支持), NVIDIA GPU (8GB+ VRAM), Python 3.10+
 
 $ErrorActionPreference = "Stop"
 $ROOT = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -22,7 +22,19 @@ if (-not (Test-Path ".env")) {
     Read-Host "按回车键继续（编辑完 .env 后）"
 }
 
-# ── 2. 模型文件检查 ────────────────────────────────────────
+# ── 2. PyTorch wheel 检查 ──────────────────────────────────
+if (-not (Get-ChildItem "backend/whl/torch-*.whl" -ErrorAction SilentlyContinue)) {
+    Write-Host ""
+    Write-Host "❌ 缺少 PyTorch CUDA wheel 文件！" -ForegroundColor Red
+    Write-Host "   请从 https://download.pytorch.org/whl/cu124 下载：" -ForegroundColor Yellow
+    Write-Host "   torch-2.5.1+cu124-cp312-cp312-linux_x86_64.whl" -ForegroundColor Yellow
+    Write-Host "   放入 backend/whl/ 目录后重新运行。" -ForegroundColor Yellow
+    Write-Host ""
+    exit 1
+}
+Write-Host "✅ PyTorch CUDA wheel 已就绪" -ForegroundColor Green
+
+# ── 3. 模型文件检查 ────────────────────────────────────────
 if (-not (Test-Path "models/bge-m3/config.json")) {
     Write-Host ""
     Write-Host "📥 模型文件未就绪，开始下载..." -ForegroundColor Yellow
@@ -43,7 +55,7 @@ if (-not (Test-Path "models/bge-m3/config.json")) {
     }
 }
 
-# ── 3. Docker Compose 启动 ─────────────────────────────────
+# ── 4. Docker Compose 启动 ─────────────────────────────────
 Write-Host ""
 Write-Host "🐳 启动 Docker 服务..." -ForegroundColor Cyan
 
@@ -85,7 +97,7 @@ if ($elapsed -ge $maxWait) {
     exit 1
 }
 
-# ── 4. 数据库初始化 ────────────────────────────────────────
+# ── 5. 数据库初始化 ────────────────────────────────────────
 Write-Host ""
 Write-Host "🗄️  初始化种子数据..." -ForegroundColor Cyan
 Invoke-Expression "$dc exec -T backend PYTHONPATH=/app python app/db/seed.py" 2>$null
@@ -93,7 +105,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "⚠️  种子数据初始化可能已跳过（已有数据时会自动跳过）" -ForegroundColor Yellow
 }
 
-# ── 5. 完成 ────────────────────────────────────────────────
+# ── 6. 完成 ────────────────────────────────────────────────
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "  🎉 部署完成！" -ForegroundColor Green
