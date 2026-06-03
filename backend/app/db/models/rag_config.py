@@ -24,5 +24,4 @@ class RAGConfig(Base):
     score_threshold: Mapped[float] = mapped_column(Float, default=0.45)
     enable_query_rewrite: Mapped[bool] = mapped_column(Boolean, default=True)
     enable_rerank: Mapped[bool] = mapped_column(Boolean, default=True)
-    enable_contextual_retrieval: Mapped[bool] = mapped_column(Boolean, default=True)
     enable_parent_child_chunking: Mapped[bool] = mapped_column(Boolean, default=True)

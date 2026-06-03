@@ -15,7 +15,7 @@ from app.db.session import async_session
 from app.db.models import Document, DocumentVersion, DocumentProcessingTask, KnowledgeBase
 from app.db.models.document import DocStatus, TaskType, TaskStatus
 from app.db.models.chunk import Chunk
-from app.db.models.rag_config import RAGConfig
+
 from app.services import minio_service
 from app.services.file_parser import parse_from_bytes
 from app.services.chunking import chunk_blocks
@@ -224,7 +224,6 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
 
         # 3.5 Contextual Retrieval：为缺少上下文的 chunk 生成描述
         doc_title = "未知文档"
-        enable_ctx = False
         try:
             doc_result = await db_session.execute(
                 select(Document).where(Document.id == doc_id)
@@ -232,15 +231,10 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
             doc = doc_result.scalar_one_or_none()
             if doc:
                 doc_title = doc.title
-                rag_result = await db_session.execute(
-                    select(RAGConfig).where(RAGConfig.knowledge_base_id == doc.knowledge_base_id)
-                )
-                rag_cfg = rag_result.scalar_one_or_none()
-                enable_ctx = rag_cfg.enable_contextual_retrieval if rag_cfg else False
         except Exception:
             pass
 
-        if enable_ctx and llm_service.is_available():
+        if llm_service.is_available():
             need_ctx = [c for c in chunks if not c.contextual_text]
             if need_ctx:
                 logger.info(f"Generating context for {len(need_ctx)} chunks...")
