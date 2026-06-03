@@ -19,7 +19,7 @@ const defaults: RAGConfig = {
   top_k_vector: 10, top_k_bm25: 10, rrf_k: 60,
   rerank_top_n: 5, score_threshold: 0.3,
   enable_query_rewrite: true, enable_rerank: true,
-  enable_contextual_retrieval: false, enable_parent_child_chunking: true,
+  enable_contextual_retrieval: true, enable_parent_child_chunking: true,
 };
 
 export default function RagConfigsPage() {
