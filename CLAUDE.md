@@ -15,6 +15,28 @@ docker compose logs backend                  # 后端日志
 docker compose logs worker                   # Worker 日志
 ```
 
+## 数据库迁移（Alembic）
+
+所有 DDL 变更通过 Alembic autogenerate 管理，不手动执行 SQL。
+
+```bash
+# 在 Docker 容器内运行（DB host 为 postgres）
+docker compose exec backend sh -c "cd /app && alembic upgrade head"             # 应用所有未执行的迁移
+docker compose exec backend sh -c "cd /app && alembic revision --autogenerate -m '描述'"  # 生成新迁移
+docker compose exec backend sh -c "cd /app && alembic downgrade -1"             # 回滚上一个版本
+docker compose exec backend sh -c "cd /app && alembic current"                  # 查看当前版本
+docker compose exec backend sh -c "cd /app && alembic history"                  # 查看迁移历史
+```
+
+**新部署流程**：`docker compose up -d` → `alembic upgrade head` → `seed.py`
+
+**开发流程**（新增列/表）：
+1. 修改 SQLAlchemy Model
+2. `alembic revision --autogenerate -m 'add_xxx'`
+3. 检查生成的迁移文件是否正确
+4. `alembic upgrade head`
+5. 重启 backend（volume 挂载，代码即时生效）
+
 ## 测试 / 代码质量
 
 ```bash
@@ -86,7 +108,6 @@ docker compose exec frontend npm run lint                        # ESLint (Next.
 - **种子数据**：`docker compose exec backend python -m app.db.seed`（`SEED_VERSION` 版本控制：DB 中版本 < 代码版本时增量 upsert，版本一致则跳过；首次运行全量创建）
 - **向量入库**：Docker worker 自动处理 parse + chunk + embed 全流程，无需本地运行
 - **模型文件**：`models/` 目录需先运行 `python scripts/download_models.py` 从 HuggingFace 下载 bge-m3 + bge-reranker-v2-m3（约 3GB），然后通过 Docker volume 挂载到 `/app/models`
-- **数据库迁移**：新增 DB 列需手动执行 SQL（如 `docker compose exec postgres psql -U raguser -d ragsystem -c "ALTER TABLE ..."`）
 - **LLM 配置**：DB 中 `model_configs` 表的 `is_default=true` 模型优先于 `.env`。无 DB 配置时回退 `.env` 的 `LLM_API_KEY`
 - **DB session 双模式**：`db/session.py` 提供 `async_session`（FastAPI 异步）和 `sync_session`（worker/Celery 同步），互不干扰
 
