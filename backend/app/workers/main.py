@@ -7,6 +7,9 @@ import logging
 import time
 import uuid
 
+from app.core.logging_config import setup_logging
+setup_logging()
+
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 

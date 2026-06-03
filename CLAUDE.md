@@ -58,6 +58,14 @@ docker compose exec frontend npm run lint                        # ESLint (Next.
 | Milvus | localhost:19530 |
 | MinIO API | localhost:9000 |
 | MinIO Console | localhost:9001 |
+| Prometheus Metrics | http://localhost:8000/metrics |
+| Monitor API | http://localhost:8000/api/admin/monitor |
+
+## 日志与监控
+
+- **日志持久化**：日志写入 `logs/app.log`（全量，10MB×10）和 `logs/error.log`（错误，10MB×5），挂载到宿主机 `./logs/` 目录
+- **Prometheus**：`prometheus-fastapi-instrumentator` 暴露 `/metrics` 端点，自动采集 HTTP 请求指标 + RAG 链路耗时/计数
+- **Monitor API**：`/api/admin/monitor` 实时查看 avg/p95 耗时、查询计数、正常运行时间。
 
 ## 备份与恢复
 
@@ -94,7 +102,7 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 
 ## 技术栈
 
-后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | Redis（限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁） | Embedding bge-m3（CPU/GPU 自适应） | Rerank bge-reranker-v2-m3（CPU/GPU 自适应） | PyTorch 2.5.1+cu124 | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
+后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | Redis（限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁） | Embedding bge-m3（CPU/GPU 自适应） | Rerank bge-reranker-v2-m3（CPU/GPU 自适应） | PyTorch 2.5.1+cu124 | 监控 Prometheus + 日志持久化 | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
 
 ## 架构概览
 
