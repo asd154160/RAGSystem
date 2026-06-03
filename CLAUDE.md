@@ -83,7 +83,7 @@ docker compose exec frontend npm run lint                        # ESLint (Next.
 ## 关键约定
 
 - **Docker volume 挂载**：backend 和 frontend 都挂载源码目录，代码改动即时生效（前端新增页面需 `docker compose restart frontend` 让 Next.js 重新扫描路由）
-- **种子数据**：`docker compose exec backend PYTHONPATH=/app python app/db/seed.py`（首次运行，idempotent——已有数据时自动跳过）
+- **种子数据**：`docker compose exec backend python -m app.db.seed`（`SEED_VERSION` 版本控制：DB 中版本 < 代码版本时增量 upsert，版本一致则跳过；首次运行全量创建）
 - **向量入库**：Docker worker 自动处理 parse + chunk + embed 全流程，无需本地运行
 - **模型文件**：`models/` 目录需先运行 `python scripts/download_models.py` 从 HuggingFace 下载 bge-m3 + bge-reranker-v2-m3（约 3GB），然后通过 Docker volume 挂载到 `/app/models`
 - **数据库迁移**：新增 DB 列需手动执行 SQL（如 `docker compose exec postgres psql -U raguser -d ragsystem -c "ALTER TABLE ..."`）
