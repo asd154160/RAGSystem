@@ -6,7 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 cd D:\Desktop\RAGSystem
-docker compose up -d                         # 启动全部服务
+docker compose up -d                         # 启动全部服务（CPU 模式，无 GPU）
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d  # GPU 加速模式
 docker compose up -d --build backend worker  # 代码变更后重建
 docker compose restart backend               # 快速重启后端（volume 挂载，代码即改即生效）
 docker compose restart frontend              # 重启前端（Next.js dev 模式需重启识别新页面）
@@ -93,7 +94,7 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 
 ## 技术栈
 
-后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | Redis（限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁） | Embedding bge-m3（Docker 内 GPU 运行） | Rerank bge-reranker-v2-m3（Docker 内 GPU 运行） | PyTorch 2.5.1+cu124 GPU 加速 | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
+后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | Redis（限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁） | Embedding bge-m3（CPU/GPU 自适应） | Rerank bge-reranker-v2-m3（CPU/GPU 自适应） | PyTorch 2.5.1+cu124 | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
 
 ## 架构概览
 
@@ -129,9 +130,8 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 - **Docker volume 挂载**：backend 和 frontend 都挂载源码目录，代码改动即时生效（前端新增页面需 `docker compose restart frontend` 让 Next.js 重新扫描路由）
 - **种子数据**：`docker compose exec backend python -m app.db.seed`（`SEED_VERSION` 版本控制：DB 中版本 < 代码版本时增量 upsert，版本一致则跳过；首次运行全量创建）
 - **向量入库**：Docker worker 自动处理 parse + chunk + embed 全流程，无需本地运行
-- **模型文件**：`models/` 目录需先运行 `python scripts/download_models.py` 从 HuggingFace 下载 bge-m3 + bge-reranker-v2-m3（约 3GB），然后通过 Docker volume 挂载到 `/app/models`
-- **PyTorch wheel**：`backend/whl/torch-2.5.1+cu124-cp312-cp312-linux_x86_64.whl`（867MB）需预先下载放入 `backend/whl/`，Dockerfile 从本地安装以加速构建。下载地址：https://download.pytorch.org/whl/cu124
-- **GPU 要求**：NVIDIA GPU（8GB+ VRAM）+ 驱动 550+ + CUDA 12.4+。Docker Desktop 需启用 WSL2 GPU 支持。backend 和 worker 容器配置了 `deploy.resources.reservations.devices` NVIDIA GPU
+- **模型文件**：`models/` 目录首次启动时自动从 HuggingFace 下载 bge-m3 + bge-reranker-v2-m3（约 3GB），也可手动运行 `python scripts/download_models.py` 预下载。国内用户设置 `HF_ENDPOINT=https://hf-mirror.com` 加速
+- **GPU 要求**：可选。默认 CPU 模式可直接运行。有 NVIDIA GPU 时使用 `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d` 启用 GPU 加速（需 nvidia-container-toolkit）
 - **LLM 配置**：DB 中 `model_configs` 表的 `is_default=true` 模型优先于 `.env`。无 DB 配置时回退 `.env` 的 `LLM_API_KEY`
 - **DB session 双模式**：`db/session.py` 提供 `async_session`（FastAPI 异步）和 `sync_session`（worker/Celery 同步），互不干扰
 
