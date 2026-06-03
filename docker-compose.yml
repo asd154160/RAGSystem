@@ -116,11 +116,13 @@ services:
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-gpt-4o}
       LLM_TEMPERATURE: "${LLM_TEMPERATURE:-0.1}"
       LOG_LEVEL: INFO
+      LOG_DIR: /app/logs
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
       - ./models:/app/models  # 首次启动自动下载，或手动运行 scripts/download_models.py
+      - ./logs:/app/logs
       - ./backups:/backups
       - ./scripts:/app/scripts
     depends_on:
@@ -153,9 +155,11 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
       MINIO_BUCKET: rag-documents
       LOG_LEVEL: INFO
+      LOG_DIR: /app/logs
     volumes:
       - ./backend:/app
       - ./models:/app/models  # 首次启动自动下载，或手动运行 scripts/download_models.py
+      - ./logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -208,9 +212,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-ragsystem}
       BACKUP_INTERVAL_SECONDS: "259200"
       BACKUP_OUTPUT_DIR: /backups
+      LOG_LEVEL: INFO
+      LOG_DIR: /app/logs
     volumes:
       - ./backend:/app
       - ./models:/app/models
+      - ./logs:/app/logs
       - ./backups:/backups
       - ./scripts:/app/scripts
     depends_on:

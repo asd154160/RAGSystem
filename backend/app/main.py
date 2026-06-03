@@ -4,8 +4,13 @@ import warnings
 # pymilvus still uses pkg_resources, suppress its deprecation warning
 warnings.filterwarnings("ignore", message=".*pkg_resources.*", category=UserWarning)
 
+from app.core.logging_config import setup_logging
+
+setup_logging()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.core.config import settings
 from app.api.auth import router as auth_router
@@ -23,10 +28,6 @@ from app.api.knowledge_gaps import router as knowledge_gaps_router
 from app.api.evaluations import router as evaluations_router
 from app.api.monitor import router as monitor_router
 
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -42,6 +43,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+Instrumentator().instrument(app).expose(app)
 
 app.include_router(auth_router)
 app.include_router(users_router)

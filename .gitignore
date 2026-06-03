@@ -48,3 +48,5 @@ backups/
 # ML models (root-level only — downloaded via scripts/download_models.py)
 /model/
 /models/
+
+backend/whl/

@@ -1,12 +1,30 @@
-"""监控指标收集服务 — 内存存储，轻量级"""
+"""监控指标收集 — 内存存储（API 查询）+ Prometheus 双写"""
 import time
 import threading
 from collections import defaultdict
+
+from prometheus_client import Counter, Histogram
 
 _lock = threading.Lock()
 _timings: dict[str, list[float]] = defaultdict(list)
 _counters: dict[str, int] = defaultdict(int)
 _started_at = time.time()
+
+# Prometheus metrics (dual-write, same names as in-memory counters)
+_p_counters: dict[str, Counter] = {}
+_p_histograms: dict[str, Histogram] = {}
+
+
+def _pc(name: str) -> Counter:
+    if name not in _p_counters:
+        _p_counters[name] = Counter(name, name)
+    return _p_counters[name]
+
+
+def _ph(name: str) -> Histogram:
+    if name not in _p_histograms:
+        _p_histograms[name] = Histogram(name, name)
+    return _p_histograms[name]
 
 
 def record_timing(name: str, ms: float):
@@ -14,15 +32,17 @@ def record_timing(name: str, ms: float):
         _timings[name].append(ms)
         if len(_timings[name]) > 1000:
             _timings[name] = _timings[name][-1000:]
+    _ph(name).observe(ms / 1000.0)
 
 
 def increment_counter(name: str, n: int = 1):
     with _lock:
         _counters[name] += n
+    _pc(name).inc(n)
 
 
 def track_time(name: str):
-    """上下文管理器用法: with track_time('retrieve'): ..."""
+    """上下文管理器: with track_time('retrieve'): ..."""
     class _Tracker:
         def __init__(self, n):
             self.name = n
