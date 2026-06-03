@@ -101,3 +101,13 @@ class DocumentProcessingTask(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     version = relationship("DocumentVersion", back_populates="tasks")
+
+
+# ── Worker 即时通知 ────────────────────────────────────────
+from sqlalchemy import event
+
+@event.listens_for(DocumentProcessingTask, 'after_insert')
+def _notify_worker(mapper, connection, target):
+    if target.status == TaskStatus.pending:
+        from app.core.redis_queue import push_task_sync
+        push_task_sync(target.id)

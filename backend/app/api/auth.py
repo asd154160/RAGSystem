@@ -1,4 +1,7 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -10,8 +13,10 @@ from app.core.security import (
     create_refresh_token,
     decode_token,
     get_current_user,
+    security_scheme,
 )
 from app.core.rate_limit import check_login_rate
+from app.core.redis_cache import blacklist_add
 from app.db.session import AsyncSession, get_db
 from app.db.models import User, Role
 from app.schemas.auth import LoginRequest, LoginResponse, RefreshRequest
@@ -103,8 +108,16 @@ async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/logout")
-async def logout(user: User = Depends(get_current_user)):
-    # Stateless JWT — client discards tokens; placeholder for future token blacklist
+async def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
+    user: User = Depends(get_current_user),
+):
+    payload = decode_token(credentials.credentials)
+    jti = payload.get("jti")
+    exp = payload.get("exp")
+    if jti and exp:
+        ttl = max(1, int(exp - datetime.now(timezone.utc).timestamp()))
+        await blacklist_add(jti, ttl)
     return {"message": "已退出登录"}
 
 

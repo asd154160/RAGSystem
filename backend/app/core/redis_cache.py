@@ -82,3 +82,22 @@ def embedding_cache_key(text: str) -> str:
 def retrieval_cache_key(query: str, kb_ids: list[str] | None, top_k: int) -> str:
     ids = ",".join(sorted(kb_ids)) if kb_ids else "*"
     return f"ret:{_hash(query, ids, str(top_k))}"
+
+
+# ── JWT blacklist ──────────────────────────────────────────
+
+async def blacklist_add(jti: str, ttl: int) -> None:
+    try:
+        r = await get_async_redis()
+        await r.set(f"jti:{jti}", "1", ex=ttl)
+    except Exception:
+        logger.warning("Redis blacklist_add failed", exc_info=True)
+
+
+async def blacklist_check(jti: str) -> bool:
+    try:
+        r = await get_async_redis()
+        return await r.exists(f"jti:{jti}") > 0
+    except Exception:
+        logger.warning("Redis blacklist_check failed", exc_info=True)
+        return False

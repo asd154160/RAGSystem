@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
+from app.core.redis_queue import pop_task
 from app.db.session import async_session
 from app.db.models import Document, DocumentVersion, DocumentProcessingTask, KnowledgeBase
 from app.db.models.document import DocStatus, TaskType, TaskStatus
@@ -316,30 +317,65 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
 
 
 async def poll_and_process():
-    """轮询待处理任务"""
+    """Redis BRPOP 即时消费 + DB 轮询兜底"""
     while True:
+        task_id = None
+        try:
+            task_id = await pop_task(timeout=5)
+        except Exception as e:
+            logger.warning(f"Redis pop failed: {e}")
+
         try:
             async with async_session() as db:
-                result = await db.execute(
-                    select(DocumentProcessingTask)
-                    .where(DocumentProcessingTask.status == TaskStatus.pending)
-                    .order_by(DocumentProcessingTask.created_at)
-                    .limit(1)
-                )
-                task = result.scalar_one_or_none()
+                if task_id:
+                    result = await db.execute(
+                        select(DocumentProcessingTask).where(
+                            DocumentProcessingTask.id == task_id,
+                            DocumentProcessingTask.status == TaskStatus.pending,
+                        )
+                    )
+                    task = result.scalar_one_or_none()
 
-                if task:
-                    logger.info(f"Processing task {task.id} ({task.task_type.value})")
-                    if task.task_type == TaskType.parse:
-                        await process_parse_task(task, db)
-                    elif task.task_type == TaskType.embed:
-                        await process_embed_task(task, db)
-                    else:
-                        task.status = TaskStatus.completed
-                        task.completed_at = func_now()
-                        await db.commit()
+                    if not task:
+                        # Redis 通知了但任务已被其他 worker 取走，回退 DB 轮询
+                        result = await db.execute(
+                            select(DocumentProcessingTask)
+                            .where(DocumentProcessingTask.status == TaskStatus.pending)
+                            .order_by(DocumentProcessingTask.created_at)
+                            .limit(1)
+                        )
+                        task = result.scalar_one_or_none()
+
+                    if task:
+                        logger.info(f"Processing task {task.id} ({task.task_type.value})")
+                        if task.task_type == TaskType.parse:
+                            await process_parse_task(task, db)
+                        elif task.task_type == TaskType.embed:
+                            await process_embed_task(task, db)
+                        else:
+                            task.status = TaskStatus.completed
+                            task.completed_at = func_now()
+                            await db.commit()
+                    # else: no task — outer loop continues
                 else:
-                    await asyncio.sleep(2)
+                    # No Redis message — fall back to DB poll
+                    result = await db.execute(
+                        select(DocumentProcessingTask)
+                        .where(DocumentProcessingTask.status == TaskStatus.pending)
+                        .order_by(DocumentProcessingTask.created_at)
+                        .limit(1)
+                    )
+                    task = result.scalar_one_or_none()
+                    if task:
+                        logger.info(f"Processing task {task.id} ({task.task_type.value}) [DB poll]")
+                        if task.task_type == TaskType.parse:
+                            await process_parse_task(task, db)
+                        elif task.task_type == TaskType.embed:
+                            await process_embed_task(task, db)
+                        else:
+                            task.status = TaskStatus.completed
+                            task.completed_at = func_now()
+                            await db.commit()
 
         except Exception as e:
             logger.error(f"Worker error: {e}")
