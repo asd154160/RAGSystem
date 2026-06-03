@@ -14,7 +14,7 @@
 | 向量数据库 | Milvus 2.4 (IVF_FLAT / COSINE) |
 | 关系数据库 | PostgreSQL 16 + pgvector + pg_trgm |
 | 对象存储 | MinIO |
-| Redis | 登录限流 + 检索缓存 + Embedding 缓存 |
+| Redis | 登录限流 + 检索缓存 + Embedding 缓存 + JWT 黑名单 + 任务队列 + 分布式锁 |
 | Embedding | bge-m3（Docker 内 sentence-transformers） |
 | Rerank | bge-reranker-v2-m3（Docker 内 FlagEmbedding） |
 | LLM | DeepSeek / Qwen / OpenAI / MiniMax（OpenAI 兼容协议） |
@@ -90,7 +90,7 @@ docker compose up -d
 | minio | Milvus 对象存储 + RAG 文档存储 | 9000/9001 |
 | milvus | 向量数据库 | 19530 |
 | postgres | 业务数据库 | 5432 |
-| redis | 登录限流 + 检索缓存 + Embedding 缓存 | 6379 |
+| redis | 限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁 | 6379 |
 | backend | FastAPI 后端 | 8000 |
 | worker | 文档解析 + Embedding 异步任务 | — |
 | frontend | Next.js 前端 | 3000 |

@@ -93,7 +93,7 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 
 ## 技术栈
 
-后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | Redis（登录限流 + 检索缓存 + Embedding 缓存） | Embedding bge-m3（Docker 内运行） | Rerank bge-reranker-v2-m3（Docker 内运行） | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
+后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | Redis（限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁） | Embedding bge-m3（Docker 内运行） | Rerank bge-reranker-v2-m3（Docker 内运行） | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
 
 ## 架构概览
 
@@ -119,7 +119,7 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 └─────────────┬─────────────────────────────────────────────┘
               │
 ┌─ Worker (独立进程) ───────────────────────────────────────┐
-│  workers/main.py: 异步轮询 doc_processing_tasks 表        │
+│  workers/main.py: Redis BRPOP 即时消费（DB 轮询兜底）     │
 │  流程: parse → chunk → contextual_retrieval → embed → insert Milvus │
 └───────────────────────────────────────────────────────────┘
 ```
