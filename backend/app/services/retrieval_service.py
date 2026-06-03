@@ -145,7 +145,15 @@ async def hybrid_search(
     top_k: int = 10,
     knowledge_base_ids: list[str] | None = None,
 ) -> list[dict]:
-    """混合检索：向量 + PostgreSQL 关键词(pg_trgm) + RRF"""
+    """混合检索：向量 + PostgreSQL 关键词(pg_trgm) + RRF（Redis 缓存命中直接返回）"""
+    from app.core.redis_cache import retrieval_cache_key, async_get, async_set, RETRIEVAL_TTL
+
+    cache_key = retrieval_cache_key(query, knowledge_base_ids, top_k)
+    cached = await async_get(cache_key)
+    if cached is not None:
+        logger.info("Retrieval cache hit for query: %s...", query[:60])
+        return cached
+
     vec_results = []
     if embedding_service.is_available():
         try:
@@ -165,6 +173,8 @@ async def hybrid_search(
 
     results = results[:top_k]
     results = await _enrich_results(results)
+
+    await async_set(cache_key, results, RETRIEVAL_TTL)
     return results
 
 
