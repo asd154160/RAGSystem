@@ -93,7 +93,7 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 
 ## 技术栈
 
-后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | 缓存/限流 Redis | Embedding bge-m3（Docker 内运行） | Rerank bge-reranker-v2-m3（Docker 内运行） | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
+后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | Redis（登录限流 + 检索缓存 + Embedding 缓存） | Embedding bge-m3（Docker 内运行） | Rerank bge-reranker-v2-m3（Docker 内运行） | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
 
 ## 架构概览
 
@@ -179,7 +179,7 @@ Access Token (30 min) + Refresh Token (7 days)，JWT Bearer。前端 `api.ts` �
 ## 检索链路
 
 ```
-Query Rewrite → Milvus向量 + pg_trgm关键词 → RRF融合 → Rerank精排 → 置信度检测 → Parent Chunk回填 → LLM生成
+Query Rewrite → Redis 检索缓存命中? → 命中直接返回 / 未命中→ Milvus向量 + pg_trgm关键词 → RRF融合 → Rerank精排 → 置信度检测 → Parent Chunk回填 → LLM生成
 ```
 
 核心服务：`retrieval_service.py` (混合检索) → `rerank_service.py` (精排) → `langgraph_workflow.py` (编排) → `llm_service.py` (生成)

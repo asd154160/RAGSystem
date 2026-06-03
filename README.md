@@ -14,7 +14,7 @@
 | 向量数据库 | Milvus 2.4 (IVF_FLAT / COSINE) |
 | 关系数据库 | PostgreSQL 16 + pgvector + pg_trgm |
 | 对象存储 | MinIO |
-| 缓存/限流 | Redis |
+| Redis | 登录限流 + 检索缓存 + Embedding 缓存 |
 | Embedding | bge-m3（Docker 内 sentence-transformers） |
 | Rerank | bge-reranker-v2-m3（Docker 内 FlagEmbedding） |
 | LLM | DeepSeek / Qwen / OpenAI / MiniMax（OpenAI 兼容协议） |
@@ -90,7 +90,7 @@ docker compose up -d
 | minio | Milvus 对象存储 + RAG 文档存储 | 9000/9001 |
 | milvus | 向量数据库 | 19530 |
 | postgres | 业务数据库 | 5432 |
-| redis | 缓存 & 限流 | 6379 |
+| redis | 登录限流 + 检索缓存 + Embedding 缓存 | 6379 |
 | backend | FastAPI 后端 | 8000 |
 | worker | 文档解析 + Embedding 异步任务 | — |
 | frontend | Next.js 前端 | 3000 |
@@ -349,6 +349,8 @@ Parent-Child Chunking（700/1600 tokens，chunk_hash 指纹）
   ↓
 Query Rewrite（LLM 检测复合问题 → 拆分子问题 OR 改写多角度查询）
   ↓
+Redis 检索缓存 — 命中(key=md5(query+kb_ids+top_k))直接返回，TTL 5min
+  ↓ (未命中)
 多路召回：Milvus 向量检索(COSINE) + PostgreSQL pg_trgm 全文检索(similarity+ILIKE)
   ↓
 RRF 融合排序（k=60）
