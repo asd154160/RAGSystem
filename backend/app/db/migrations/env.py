@@ -5,7 +5,7 @@ from alembic import context
 
 from app.core.config import settings
 from app.db.session import Base
-from app.db.models import User, Department, Role, Permission, KnowledgeBase, Document, DocumentVersion, DocumentProcessingTask, Chunk, RAGConfig
+from app.db.models import *  # noqa: F401,F403 — ensure all models are imported for Base.metadata
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url_sync)

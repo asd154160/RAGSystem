@@ -11,7 +11,7 @@ interface RAGConfig {
   top_k_vector: number; top_k_bm25: number; rrf_k: number;
   rerank_top_n: number; score_threshold: number;
   enable_query_rewrite: boolean; enable_rerank: boolean;
-  enable_contextual_retrieval: boolean; enable_parent_child_chunking: boolean;
+  enable_parent_child_chunking: boolean;
 }
 
 const defaults: RAGConfig = {
@@ -19,7 +19,7 @@ const defaults: RAGConfig = {
   top_k_vector: 10, top_k_bm25: 10, rrf_k: 60,
   rerank_top_n: 5, score_threshold: 0.3,
   enable_query_rewrite: true, enable_rerank: true,
-  enable_contextual_retrieval: false, enable_parent_child_chunking: true,
+  enable_parent_child_chunking: true,
 };
 
 export default function RagConfigsPage() {
@@ -82,7 +82,7 @@ export default function RagConfigsPage() {
             <div className="flex flex-wrap gap-4">
               <BoolField label="Query Rewrite" value={config.enable_query_rewrite} onChange={v => setConfig({...config, enable_query_rewrite: v})} />
               <BoolField label="Rerank" value={config.enable_rerank} onChange={v => setConfig({...config, enable_rerank: v})} />
-              <BoolField label="Contextual Retrieval" value={config.enable_contextual_retrieval} onChange={v => setConfig({...config, enable_contextual_retrieval: v})} />
+
               <BoolField label="Parent-Child Chunking" value={config.enable_parent_child_chunking} onChange={v => setConfig({...config, enable_parent_child_chunking: v})} />
             </div>
             <button onClick={handleSave}

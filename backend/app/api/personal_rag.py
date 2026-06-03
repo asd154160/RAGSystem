@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, delete as sql_delete, text
-from sqlalchemy.exc import IntegrityError
+
 from sqlalchemy.orm import selectinload
 
 from app.core.security import get_current_user
@@ -30,7 +30,7 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 
 
 async def _get_or_create_personal_kb(db: AsyncSession, current_user: User) -> KnowledgeBase:
-    """获取当前用户的个人知识库，不存在则自动创建（并发安全）"""
+    """获取当前用户的个人知识库，不存在则自动创建（并发安全：Redis 锁 + DB 唯一约束）"""
     result = await db.execute(
         select(KnowledgeBase).where(
             KnowledgeBase.type == "personal",
@@ -42,27 +42,47 @@ async def _get_or_create_personal_kb(db: AsyncSession, current_user: User) -> Kn
     if kb:
         return kb
 
-    kb = KnowledgeBase(
-        name=f"{current_user.username}的个人知识库",
-        description="个人知识库",
-        type="personal",
-        owner_user_id=current_user.id,
-    )
-    db.add(kb)
+    from app.core.redis_lock import RedisLock, LockError
+
     try:
-        await db.commit()
-        await db.refresh(kb)
-    except IntegrityError:
-        await db.rollback()
-        result = await db.execute(
+        async with RedisLock(f"personal_kb:{current_user.id}", ttl=10):
+            # 双重检查：获取锁后再次确认
+            result2 = await db.execute(
+                select(KnowledgeBase).where(
+                    KnowledgeBase.type == "personal",
+                    KnowledgeBase.owner_user_id == current_user.id,
+                    KnowledgeBase.is_active == True,
+                ).limit(1)
+            )
+            kb2 = result2.scalars().first()
+            if kb2:
+                return kb2
+
+            kb = KnowledgeBase(
+                name=f"{current_user.username}的个人知识库",
+                description="个人知识库",
+                type="personal",
+                owner_user_id=current_user.id,
+            )
+            db.add(kb)
+            await db.commit()
+            await db.refresh(kb)
+            return kb
+    except LockError:
+        # 锁竞争 → 另一个请求正在创建，等待后重查
+        import asyncio
+        await asyncio.sleep(0.5)
+        result3 = await db.execute(
             select(KnowledgeBase).where(
                 KnowledgeBase.type == "personal",
                 KnowledgeBase.owner_user_id == current_user.id,
                 KnowledgeBase.is_active == True,
             ).limit(1)
         )
-        kb = result.scalars().first()
-    return kb
+        kb3 = result3.scalars().first()
+        if kb3:
+            return kb3
+        raise HTTPException(status_code=500, detail="个人知识库创建失败，请稍后重试")
 
 
 class ChatRequest(BaseModel):

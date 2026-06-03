@@ -11,11 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
+from app.core.redis_queue import pop_task
 from app.db.session import async_session
 from app.db.models import Document, DocumentVersion, DocumentProcessingTask, KnowledgeBase
 from app.db.models.document import DocStatus, TaskType, TaskStatus
 from app.db.models.chunk import Chunk
-from app.db.models.rag_config import RAGConfig
+
 from app.services import minio_service
 from app.services.file_parser import parse_from_bytes
 from app.services.chunking import chunk_blocks
@@ -224,7 +225,6 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
 
         # 3.5 Contextual Retrieval：为缺少上下文的 chunk 生成描述
         doc_title = "未知文档"
-        enable_ctx = False
         try:
             doc_result = await db_session.execute(
                 select(Document).where(Document.id == doc_id)
@@ -232,15 +232,10 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
             doc = doc_result.scalar_one_or_none()
             if doc:
                 doc_title = doc.title
-                rag_result = await db_session.execute(
-                    select(RAGConfig).where(RAGConfig.knowledge_base_id == doc.knowledge_base_id)
-                )
-                rag_cfg = rag_result.scalar_one_or_none()
-                enable_ctx = rag_cfg.enable_contextual_retrieval if rag_cfg else False
         except Exception:
             pass
 
-        if enable_ctx and llm_service.is_available():
+        if llm_service.is_available():
             need_ctx = [c for c in chunks if not c.contextual_text]
             if need_ctx:
                 logger.info(f"Generating context for {len(need_ctx)} chunks...")
@@ -322,30 +317,65 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
 
 
 async def poll_and_process():
-    """轮询待处理任务"""
+    """Redis BRPOP 即时消费 + DB 轮询兜底"""
     while True:
+        task_id = None
+        try:
+            task_id = await pop_task(timeout=5)
+        except Exception as e:
+            logger.warning(f"Redis pop failed: {e}")
+
         try:
             async with async_session() as db:
-                result = await db.execute(
-                    select(DocumentProcessingTask)
-                    .where(DocumentProcessingTask.status == TaskStatus.pending)
-                    .order_by(DocumentProcessingTask.created_at)
-                    .limit(1)
-                )
-                task = result.scalar_one_or_none()
+                if task_id:
+                    result = await db.execute(
+                        select(DocumentProcessingTask).where(
+                            DocumentProcessingTask.id == task_id,
+                            DocumentProcessingTask.status == TaskStatus.pending,
+                        )
+                    )
+                    task = result.scalar_one_or_none()
 
-                if task:
-                    logger.info(f"Processing task {task.id} ({task.task_type.value})")
-                    if task.task_type == TaskType.parse:
-                        await process_parse_task(task, db)
-                    elif task.task_type == TaskType.embed:
-                        await process_embed_task(task, db)
-                    else:
-                        task.status = TaskStatus.completed
-                        task.completed_at = func_now()
-                        await db.commit()
+                    if not task:
+                        # Redis 通知了但任务已被其他 worker 取走，回退 DB 轮询
+                        result = await db.execute(
+                            select(DocumentProcessingTask)
+                            .where(DocumentProcessingTask.status == TaskStatus.pending)
+                            .order_by(DocumentProcessingTask.created_at)
+                            .limit(1)
+                        )
+                        task = result.scalar_one_or_none()
+
+                    if task:
+                        logger.info(f"Processing task {task.id} ({task.task_type.value})")
+                        if task.task_type == TaskType.parse:
+                            await process_parse_task(task, db)
+                        elif task.task_type == TaskType.embed:
+                            await process_embed_task(task, db)
+                        else:
+                            task.status = TaskStatus.completed
+                            task.completed_at = func_now()
+                            await db.commit()
+                    # else: no task — outer loop continues
                 else:
-                    await asyncio.sleep(2)
+                    # No Redis message — fall back to DB poll
+                    result = await db.execute(
+                        select(DocumentProcessingTask)
+                        .where(DocumentProcessingTask.status == TaskStatus.pending)
+                        .order_by(DocumentProcessingTask.created_at)
+                        .limit(1)
+                    )
+                    task = result.scalar_one_or_none()
+                    if task:
+                        logger.info(f"Processing task {task.id} ({task.task_type.value}) [DB poll]")
+                        if task.task_type == TaskType.parse:
+                            await process_parse_task(task, db)
+                        elif task.task_type == TaskType.embed:
+                            await process_embed_task(task, db)
+                        else:
+                            task.status = TaskStatus.completed
+                            task.completed_at = func_now()
+                            await db.commit()
 
         except Exception as e:
             logger.error(f"Worker error: {e}")

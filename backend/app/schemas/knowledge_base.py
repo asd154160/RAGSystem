@@ -75,5 +75,4 @@ class RAGConfigRequest(BaseModel):
     score_threshold: float = 0.45
     enable_query_rewrite: bool = True
     enable_rerank: bool = True
-    enable_contextual_retrieval: bool = False
     enable_parent_child_chunking: bool = True

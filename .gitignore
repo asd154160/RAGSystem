@@ -39,9 +39,12 @@ Thumbs.db
 # HF models
 HF_model/
 
+# Backups
+backups/
+
 # Claude Code (local developer settings)
 .claude/
 
-# model
-model/
-models/
+# ML models (root-level only — downloaded via scripts/download_models.py)
+/model/
+/models/

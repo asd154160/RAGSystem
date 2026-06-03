@@ -302,7 +302,6 @@ async def get_rag_config(
             "score_threshold": config.score_threshold,
             "enable_query_rewrite": config.enable_query_rewrite,
             "enable_rerank": config.enable_rerank,
-            "enable_contextual_retrieval": config.enable_contextual_retrieval,
             "enable_parent_child_chunking": config.enable_parent_child_chunking,
         }
     return RAGConfigRequest().model_dump()

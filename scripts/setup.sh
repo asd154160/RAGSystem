@@ -6,7 +6,7 @@
 #   chmod +x scripts/setup.sh
 #   bash scripts/setup.sh
 #
-# 环境要求: Docker & Docker Compose, Python 3.10+
+# 环境要求: Docker Desktop (WSL2 GPU 支持), NVIDIA GPU (8GB+ VRAM), Python 3.10+
 #
 
 set -e
@@ -30,7 +30,19 @@ if [ ! -f .env ]; then
     read -p "按回车键继续（编辑完 .env 后）..." _ </dev/tty || true
 fi
 
-# ── 2. 模型文件检查 ────────────────────────────────────────
+# ── 2. PyTorch wheel 检查 ──────────────────────────────────
+if ! ls backend/whl/torch-*.whl >/dev/null 2>&1; then
+    echo ""
+    echo "❌ 缺少 PyTorch CUDA wheel 文件！"
+    echo "   请从 https://download.pytorch.org/whl/cu124 下载："
+    echo "   torch-2.5.1+cu124-cp312-cp312-linux_x86_64.whl"
+    echo "   放入 backend/whl/ 目录后重新运行。"
+    echo ""
+    exit 1
+fi
+echo "✅ PyTorch CUDA wheel 已就绪"
+
+# ── 3. 模型文件检查 ────────────────────────────────────────
 if [ ! -d "models/bge-m3" ] || [ ! -f "models/bge-m3/config.json" ]; then
     echo ""
     echo "📥 模型文件未就绪，开始下载..."
@@ -53,7 +65,7 @@ if [ ! -d "models/bge-m3" ] || [ ! -f "models/bge-m3/config.json" ]; then
     fi
 fi
 
-# ── 3. Docker Compose 启动 ─────────────────────────────────
+# ── 4. Docker Compose 启动 ─────────────────────────────────
 echo ""
 echo "🐳 启动 Docker 服务..."
 
@@ -88,14 +100,14 @@ if [ $ELAPSED -ge $MAX_WAIT ]; then
     exit 1
 fi
 
-# ── 4. 数据库初始化 ────────────────────────────────────────
+# ── 5. 数据库初始化 ────────────────────────────────────────
 echo ""
 echo "🗄️  初始化种子数据..."
 $DOCKER_COMPOSE exec -T backend PYTHONPATH=/app python app/db/seed.py 2>&1 | head -5 || {
     echo "⚠️  种子数据初始化可能已跳过（已有数据时会自动跳过）"
 }
 
-# ── 5. 完成 ────────────────────────────────────────────────
+# ── 6. 完成 ────────────────────────────────────────────────
 echo ""
 echo "=========================================="
 echo "  🎉 部署完成！"

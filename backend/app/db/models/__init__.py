@@ -10,6 +10,7 @@ from app.db.models.model_config import ModelConfig
 from app.db.models.audit_log import AuditLog
 from app.db.models.knowledge_gap import KnowledgeGap
 from app.db.models.evaluation import EvalDataset, EvalRun, EvalResult
+from app.db.models.system_config import SystemConfig
 from app.db.models.associations import user_roles, role_permissions, department_members
 from app.db.session import Base
 
@@ -17,5 +18,14 @@ __all__ = [
     "User", "Department", "Role", "Permission",
     "KnowledgeBase", "KnowledgeBasePermission", "UserKBOverride",
     "Document", "DocumentVersion", "DocumentProcessingTask",
+    "Chunk",
+    "RAGConfig",
+    "ChatSession", "ChatMessage", "RagAnswerSource",
+    "ModelConfig",
+    "AuditLog",
+    "KnowledgeGap",
+    "EvalDataset", "EvalRun", "EvalResult",
+    "SystemConfig",
+    "user_roles", "role_permissions", "department_members",
     "Base",
 ]

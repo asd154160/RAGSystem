@@ -1,4 +1,5 @@
 import hashlib
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -29,6 +30,7 @@ def create_access_token(user_id: str, username: str) -> str:
     payload = {
         "sub": user_id,
         "username": username,
+        "jti": str(uuid.uuid4()),
         "exp": expire,
         "type": "access",
     }
@@ -59,6 +61,13 @@ async def get_current_user(
     payload = decode_token(credentials.credentials)
     if payload.get("type") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌类型无效")
+
+    # JWT blacklist check
+    jti = payload.get("jti")
+    if jti:
+        from app.core.redis_cache import blacklist_check
+        if await blacklist_check(jti):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌已失效")
 
     user_id = payload.get("sub")
     if not user_id:

@@ -14,11 +14,11 @@
 | 向量数据库 | Milvus 2.4 (IVF_FLAT / COSINE) |
 | 关系数据库 | PostgreSQL 16 + pgvector + pg_trgm |
 | 对象存储 | MinIO |
-| 缓存/限流 | Redis |
+| Redis | 登录限流 + 检索缓存 + Embedding 缓存 + JWT 黑名单 + 任务队列 + 分布式锁 |
 | Embedding | bge-m3（Docker 内 sentence-transformers） |
 | Rerank | bge-reranker-v2-m3（Docker 内 FlagEmbedding） |
 | LLM | DeepSeek / Qwen / OpenAI / MiniMax（OpenAI 兼容协议） |
-| 容器化 | Docker Compose（8 个服务） |
+| 容器化 | Docker Compose（9 个服务） |
 
 ---
 
@@ -26,9 +26,10 @@
 
 ### 环境要求
 
-- Docker Desktop（含 Docker Compose v2）
+- Docker Desktop（含 Docker Compose v2）— 需启用 WSL2 GPU 支持
+- NVIDIA GPU（8GB+ VRAM）+ 驱动 550+ + CUDA 12.4+
 - Python 3.10+（仅用于模型下载脚本）
-- 8GB+ 内存，20GB+ 磁盘空间
+- 16GB+ 内存，30GB+ 磁盘空间
 
 ### 一键部署（推荐）
 
@@ -40,7 +41,7 @@ bash scripts/setup.sh
 .\scripts\setup.ps1
 ```
 
-脚本自动完成：`.env` 检查 → 模型下载（`bge-m3` + `bge-reranker-v2-m3`，约 3GB）→ Docker 构建启动 → 健康检查等待 → 种子数据初始化。
+脚本自动完成：`.env` 检查 → 模型下载（`bge-m3` + `bge-reranker-v2-m3`，约 3GB）→ torch wheel 检查 → Docker 构建启动 → 健康检查等待 → 种子数据初始化。
 
 ### 分步部署
 
@@ -62,7 +63,20 @@ LLM_MODEL_NAME=MiniMax-M2.7
 LLM_TEMPERATURE=0.1
 ```
 
-**2. 下载模型文件**
+**2. 准备 PyTorch CUDA wheel**
+
+从 PyTorch 官网下载 CUDA 12.4 wheel 到 `backend/whl/`（约 867MB）：
+
+```bash
+# 创建 whl 目录并下载
+mkdir -p backend/whl
+# 下载地址: https://download.pytorch.org/whl/cu124/torch-2.5.1%2Bcu124-cp312-cp312-linux_x86_64.whl
+# 或用浏览器下载后放入 backend/whl/
+```
+
+> Dockerfile 会优先安装本地 wheel，避免每次构建下载 867MB。
+
+**3. 下载模型文件**
 
 ```bash
 python scripts/download_models.py
@@ -76,13 +90,13 @@ models/
 └── bge-reranker-v2-m3/       # rerank 模型（~1GB）
 ```
 
-**3. 启动服务**
+**4. 启动服务**
 
 ```bash
 docker compose up -d
 ```
 
-首次启动会拉取基础镜像并构建，后端首次构建约需 5-10 分钟（安装 PyTorch CPU 版 + sentence-transformers 等依赖）。共 8 个服务：
+首次启动会拉取基础镜像并构建，后端首次构建约 3-5 分钟（PyTorch CUDA 12.4 版从本地 wheel 安装，无需下载）。共 9 个服务：
 
 | 服务 | 用途 | 端口 |
 |------|------|------|
@@ -90,12 +104,13 @@ docker compose up -d
 | minio | Milvus 对象存储 + RAG 文档存储 | 9000/9001 |
 | milvus | 向量数据库 | 19530 |
 | postgres | 业务数据库 | 5432 |
-| redis | 缓存 & 限流 | 6379 |
-| backend | FastAPI 后端 | 8000 |
-| worker | 文档解析 + Embedding 异步任务 | — |
+| redis | 限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁 | 6379 |
+| backend | FastAPI 后端（GPU 推理） | 8000 |
+| worker | 文档解析 + Embedding 异步任务（GPU 推理） | — |
 | frontend | Next.js 前端 | 3000 |
+| backup-cron | 定时备份（PostgreSQL + MinIO + Milvus） | — |
 
-**4. 初始化种子数据**
+**5. 初始化种子数据**
 
 ```bash
 docker compose exec backend PYTHONPATH=/app python app/db/seed.py
@@ -182,6 +197,8 @@ RAGSystem/
 │   │   ├── schemas/                    # Pydantic 请求/响应模型
 │   │   └── workers/                    # 异步任务 Worker
 │   │       └── main.py                 # 文档解析 + Embedding（轮询处理）
+│   ├── whl/                         # PyTorch CUDA 12.4 本地 wheel（构建加速）
+│   │   └── torch-2.5.1+cu124-cp312-cp312-linux_x86_64.whl
 │   ├── requirements.txt
 │   ├── requirements-docker.txt
 │   └── Dockerfile
@@ -331,7 +348,7 @@ Parent-Child Chunking（700/1600 tokens，chunk_hash 指纹）
                               ↓
                       Worker Embedding（bge-m3，hash 匹配复用旧向量）
                               ↓
-                      Contextual Retrieval（若启用：LLM 生成上下文描述）
+                      Contextual Retrieval（LLM 生成 chunk 上下文描述，固定环节）
                               ↓
                       Milvus 向量入库 → published → 可检索
 ```
@@ -349,6 +366,8 @@ Parent-Child Chunking（700/1600 tokens，chunk_hash 指纹）
   ↓
 Query Rewrite（LLM 检测复合问题 → 拆分子问题 OR 改写多角度查询）
   ↓
+Redis 检索缓存 — 命中(key=md5(query+kb_ids+top_k))直接返回，TTL 5min
+  ↓ (未命中)
 多路召回：Milvus 向量检索(COSINE) + PostgreSQL pg_trgm 全文检索(similarity+ILIKE)
   ↓
 RRF 融合排序（k=60）
@@ -509,7 +528,6 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆�
 | `score_threshold` | 0.45 | 低置信度阈值 |
 | `enable_query_rewrite` | true | Query Rewrite 开关 |
 | `enable_rerank` | true | Rerank 开关 |
-| `enable_contextual_retrieval` | false | Contextual Retrieval 开关（LLM 生成 chunk 上下文描述） |
 | `enable_parent_child_chunking` | true | Parent-Child Chunking 开关 |
 
 ---
@@ -521,7 +539,7 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆�
 | 文档 | 6 种格式解析 | txt / md / pdf / docx / xlsx / pptx |
 | 文档 | Parent-Child Chunking | 子块 700 token + 父块 1600 token |
 | 文档 | 增量索引 | chunk_hash 指纹匹配，仅对有变化的块做 embedding |
-| 文档 | Contextual Retrieval | LLM 生成 100-200 字 chunk 上下文描述，提升检索精度 |
+| 文档 | Contextual Retrieval | LLM 生成 100-200 字 chunk 上下文描述，内建固定环节，提升检索精度 |
 | 文档 | 生命周期管理 | 上传→解析→审核→发布→入库，含版本管理 |
 | 检索 | Query Rewrite | LLM 检测复合问题并拆分 / 改写多角度查询 |
 | 检索 | 混合检索 | Milvus 向量 + pg_trgm 关键词 → RRF 融合 |
@@ -559,8 +577,9 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆�
 ### Docker
 - `backend` 和 `frontend` 挂载源码目录，代码改动即改即生效（新增前端页面需重启 `docker compose restart frontend`）
 - `.env` 变更后需重建容器：`docker compose up -d --force-recreate backend worker`
-- CPU 版 PyTorch 首次构建约需 5-10 分钟（安装 torch + sentence-transformers）
-- Worker 内存建议 4GB+（bge-m3 模型加载需约 2GB）
+- **PyTorch CUDA 12.4 版**从本地 `backend/whl/torch-2.5.1+cu124-*.whl` 安装，构建无需下载。若 whl 缺失：从 https://download.pytorch.org/whl/cu124 下载对应 wheel 放入 `backend/whl/`
+- Docker Desktop 需在 Settings → Resources → WSL Integration 中启用 GPU 支持
+- Worker 内存建议 4GB+（bge-m3 模型加载需约 2GB VRAM）
 
 ### 常见问题
 

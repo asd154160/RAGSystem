@@ -72,6 +72,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
     networks:
       - rag_network
     healthcheck:
@@ -96,6 +97,13 @@ services:
 
   backend:
     build: ./backend
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragsystem}
       DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragsystem}
@@ -120,6 +128,8 @@ services:
     volumes:
       - ./backend:/app
       - ./models:/app/models  # 需先运行 scripts/download_models.py 下载模型
+      - ./backups:/backups
+      - ./scripts:/app/scripts
     depends_on:
       postgres:
         condition: service_healthy
@@ -139,6 +149,13 @@ services:
 
   worker:
     build: ./backend
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragsystem}
       DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragsystem}
@@ -186,6 +203,37 @@ services:
     networks:
       - rag_network
     command: npm run dev
+
+  backup-cron:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragsystem}
+      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragsystem}
+      REDIS_URL: redis://redis:6379/0
+      MILVUS_HOST: milvus
+      MILVUS_PORT: "19530"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_BUCKET: rag-documents
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-raguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-ragsystem}
+      BACKUP_INTERVAL_SECONDS: "86400"
+      BACKUP_OUTPUT_DIR: /backups
+    volumes:
+      - ./backend:/app
+      - ./backups:/backups
+      - ./scripts:/app/scripts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    networks:
+      - rag_network
+    command: python /app/scripts/scheduler.py
 
 volumes:
   etcd_data:
