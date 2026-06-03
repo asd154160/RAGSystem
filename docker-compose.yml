@@ -97,13 +97,6 @@ services:
 
   backend:
     build: ./backend
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragsystem}
       DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragsystem}
@@ -127,7 +120,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-      - ./models:/app/models  # 需先运行 scripts/download_models.py 下载模型
+      - ./models:/app/models  # 首次启动自动下载，或手动运行 scripts/download_models.py
       - ./backups:/backups
       - ./scripts:/app/scripts
     depends_on:
@@ -149,13 +142,6 @@ services:
 
   worker:
     build: ./backend
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragsystem}
       DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragsystem}
@@ -169,7 +155,7 @@ services:
       LOG_LEVEL: INFO
     volumes:
       - ./backend:/app
-      - ./models:/app/models  # 需先运行 scripts/download_models.py 下载模型
+      - ./models:/app/models  # 首次启动自动下载，或手动运行 scripts/download_models.py
     depends_on:
       postgres:
         condition: service_healthy
@@ -220,10 +206,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-raguser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
       POSTGRES_DB: ${POSTGRES_DB:-ragsystem}
-      BACKUP_INTERVAL_SECONDS: "86400"
+      BACKUP_INTERVAL_SECONDS: "259200"
       BACKUP_OUTPUT_DIR: /backups
     volumes:
       - ./backend:/app
+      - ./models:/app/models
       - ./backups:/backups
       - ./scripts:/app/scripts
     depends_on:

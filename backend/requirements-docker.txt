@@ -32,7 +32,7 @@ langchain-community==0.3.13
 langchain-core==0.3.33
 
 # Embedding & Rerank (本地运行)
-# torch is installed separately from local wheel: whl/torch-2.5.1+cu124-cp312-cp312-linux_x86_64.whl
+# torch 在 Dockerfile 中从 PyTorch index 安装 (CUDA 12.4)，此处仅安装依赖
 sentence-transformers==3.3.1
 FlagEmbedding==1.3.3
 
