@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
 import { useAuth, AuthProvider } from "@/lib/auth-context";
-import { apiGet, apiDelete } from "@/lib/api";
-import { streamChat, SSEEvent } from "@/lib/stream";
+import { apiGet, apiPost, apiDelete } from "@/lib/api";
+import { streamChat } from "@/lib/stream";
 import { ChatMessage, Conversation, RagSource } from "@/types";
 import SessionList from "@/components/chat/session-list";
 import ChatPanel from "@/components/chat/chat-panel";
@@ -167,6 +167,13 @@ function EnterpriseRagInner() {
     }
   };
 
+  const handleFeedback = async (messageId: string, rating: string, reason: string) => {
+    await apiPost(`/api/sessions/messages/${messageId}/feedback`, { rating, reason });
+    setMessages(prev => prev.map(m =>
+      m.id === messageId ? { ...m, rating, rating_reason: reason } : m
+    ));
+  };
+
   const handleSourceHover = (index: number | null) => {
     setActiveSource(index);
   };
@@ -225,6 +232,7 @@ function EnterpriseRagInner() {
           statusMsg={statusMsg}
           onSend={handleSend}
           onSourceHover={handleSourceHover}
+          onFeedback={handleFeedback}
           kbList={kbList}
           selectedKbIds={selectedKbIds}
           onKbToggle={handleKbToggle}

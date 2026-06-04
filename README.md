@@ -163,7 +163,7 @@ RAGSystem/
 │   │   │   ├── models/                 # 16 个 SQLAlchemy 模型
 │   │   │   ├── session.py              # async + sync 数据库引擎
 │   │   │   └── seed.py                 # 种子数据（角色/权限/用户）
-│   │   ├── api/                        # 14 个路由模块
+│   │   ├── api/                        # 14 个路由模块（knowledge-gaps 合并到 sessions）
 │   │   │   ├── auth.py                 # 登录/刷新/退出/当前用户
 │   │   │   ├── users.py                # 用户 CRUD + 密码修改 + 个人RAG开关
 │   │   │   ├── departments.py          # 部门 CRUD + M2M 成员管理
@@ -217,7 +217,7 @@ RAGSystem/
 │   │   ├── model-configs/              # 模型配置
 │   │   ├── rag-configs/                # RAG 参数配置
 │   │   ├── audit-logs/                 # 审计日志
-│   │   ├── knowledge-gaps/             # 知识缺口管理
+│   │   ├── sessions/                   # 会话记录（含消息反馈+知识缺口）
 │   │   ├── evaluations/                # RAG 评测
 │   │   └── monitor/                    # 系统监控
 │   ├── components/
@@ -315,13 +315,13 @@ RAGSystem/
 | GET/POST | `/api/admin/models` | manage_model_config | LLM 模型配置列表 / 新增 |
 | PATCH/DELETE | `/api/admin/models/{id}` | manage_model_config | 更新 / 删除 |
 | GET | `/api/admin/audit-logs` | view_audit_logs | 审计日志查询（支持 action/user_id 过滤） |
-| GET | `/api/knowledge-gaps` | 需登录 | 知识缺口列表 |
+| GET | `/api/knowledge-gaps` | 需登录 | 知识缺口列表（支持 session_id 过滤） |
 | PATCH | `/api/knowledge-gaps/{id}` | 需登录 | 更新缺口状态/备注 |
 | POST | `/api/knowledge-gaps/{id}/resolve` | 需登录 | 标记已解决 |
 | GET/POST | `/api/admin/evaluations/datasets` | 需登录 | 评测集列表 / 创建 |
 | DELETE | `/api/admin/evaluations/datasets/{id}` | 需登录 | 删除评测集 |
-| GET/POST | `/api/admin/evaluations/runs` | 需登录 | 评测记录 / 启动 |
-| GET | `/api/admin/evaluations/runs/{id}` | 需登录 | 评测详情 |
+| GET/POST | `/api/admin/evaluations/runs` | 需登录 | 评测记录列表（含数据集名） / 启动 |
+| GET/DELETE | `/api/admin/evaluations/runs/{id}` | 需登录 | 评测详情（逐题结果 + 聚合指标） / 删除运行 |
 | GET | `/api/admin/monitor` | 需登录 | 系统监控指标（今日调用/延迟/低置信度/错误） |
 | POST | `/api/admin/monitor/reset` | 需登录 | 重置指标 |
 
@@ -539,7 +539,7 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆�
 | 文档 | 6 种格式解析 | txt / md / pdf / docx / xlsx / pptx |
 | 文档 | Parent-Child Chunking | 子块 700 token + 父块 1600 token |
 | 文档 | 增量索引 | chunk_hash 指纹匹配，仅对有变化的块做 embedding |
-| 文档 | Contextual Retrieval | LLM 生成 100-200 字 chunk 上下文描述，内建固定环节，提升检索精度 |
+| 文档 | Contextual Retrieval | LLM 生成 100-200 字 chunk 上下文描述，拼入 embedding 和 Milvus chunk_text，提升检索和 Rerank 精度 |
 | 文档 | 生命周期管理 | 上传→解析→审核→发布→入库，含版本管理 |
 | 检索 | Query Rewrite | LLM 检测复合问题并拆分 / 改写多角度查询 |
 | 检索 | 混合检索 | Milvus 向量 + pg_trgm 关键词 → RRF 融合 |
@@ -555,10 +555,10 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆�
 | 权限 | 部门连接 | User FK + M2M 双路部门归属 |
 | 管理 | 会话管理 | 创建/列表/删除/反馈(like/dislike) |
 | 管理 | 审计日志 | 全量操作记录，按 action/user_id 过滤 |
-| 管理 | 知识缺口 | 低置信度自动记录，可标记已解决 |
+| 管理 | 知识缺口 | 低置信度自动记录，在会话记录页中可查看和标记已解决 |
 | 管理 | 模型配置 | DB 存储 LLM 配置，支持多 provider，API Key 加密 |
 | 运维 | 监控指标 | 今日调用/平均延迟/p95/低置信度/错误数，5s 自动刷新 |
-| 运维 | RAG 评测 | 数据集 + 评测记录，逐题评分 |
+| 运维 | RAG 评测 | 数据集 + 评测运行，逐题 Embedding 语义评分 + 展开查看期望vs实际回答，自动轮询 |
 | 运维 | 限流 | Redis 登录限流（5次/min/用户，20次/min/IP） |
 
 ---
@@ -594,7 +594,7 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆�
 
 ### 数据库
 - 种子数据首次运行会清库重建标记为 `is_system` 的角色/权限；已有数据时自动跳过
-- 新增 DB 列需手动执行 SQL（无自动 migration）：`docker compose exec postgres psql -U raguser -d ragsystem -c "ALTER TABLE ..."`
+- 所有 DDL 变更通过 Alembic autogenerate 管理，不手动执行 SQL。在容器内运行：`docker compose exec backend sh -c "cd /app && alembic revision --autogenerate -m '描述'"` 生成迁移 → `alembic upgrade head` 应用
 - 备份方案：`pg_dump` + MinIO `mc mirror` + Milvus 集合导出
 
 ### 监控

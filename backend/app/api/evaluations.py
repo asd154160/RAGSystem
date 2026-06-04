@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/admin/evaluations", tags=["evaluations"])
 class DatasetCreate(BaseModel):
     name: str = Field(..., min_length=1)
     kb_id: str | None = None
-    questions: list[dict]  # [{question, expected_answer, expected_sources}]
+    questions: list[dict]
 
 
 class RunRequest(BaseModel):
@@ -76,16 +76,19 @@ async def list_runs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(EvalRun).order_by(EvalRun.created_at.desc()).limit(30))
-    runs = result.scalars().all()
+    result = await db.execute(
+        select(EvalRun, EvalDataset.name).join(EvalDataset, EvalRun.dataset_id == EvalDataset.id, isouter=True)
+        .order_by(EvalRun.created_at.desc()).limit(30)
+    )
+    rows = result.all()
     return [
-        {"id": r.id, "dataset_id": r.dataset_id, "status": r.status,
-         "total_questions": r.total_questions, "avg_recall": r.avg_recall,
-         "avg_hit_rate": r.avg_hit_rate, "avg_answer_score": r.avg_answer_score,
-         "low_confidence_rate": r.low_confidence_rate,
+        {"id": r.id, "dataset_id": r.dataset_id, "dataset_name": dataset_name,
+         "status": r.status, "total_questions": r.total_questions,
+         "avg_recall": r.avg_recall, "avg_hit_rate": r.avg_hit_rate,
+         "avg_answer_score": r.avg_answer_score, "low_confidence_rate": r.low_confidence_rate,
          "started_at": r.started_at.isoformat() if r.started_at else None,
          "completed_at": r.completed_at.isoformat() if r.completed_at else None}
-        for r in runs
+        for r, dataset_name in rows
     ]
 
 
@@ -108,7 +111,6 @@ async def start_run(
     db.add(run)
     await db.commit()
 
-    # Run async in background
     asyncio.create_task(run_evaluation(run.id, kb_ids or []))
 
     return {"id": run.id, "message": "评测已启动"}
@@ -142,3 +144,22 @@ async def get_run(
             for r in detail
         ],
     }
+
+
+@router.delete("/runs/{run_id}")
+async def delete_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    run_result = await db.execute(select(EvalRun).where(EvalRun.id == run_id))
+    run = run_result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(404, "评测记录不存在")
+    # Delete associated results first
+    results = await db.execute(select(EvalResult).where(EvalResult.run_id == run_id))
+    for r in results.scalars().all():
+        await db.delete(r)
+    await db.delete(run)
+    await db.commit()
+    return {"message": "已删除"}

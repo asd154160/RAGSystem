@@ -156,6 +156,7 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 | `Chunk` | 文档块，`is_active` / `status` 控制可检索性 |
 | `ConversationSession` / `ConversationMessage` | 会话 + 消息（含反馈 `rating`） |
 | `ModelConfig` / `RAGConfig` | LLM 配置 + RAG 超参（top_k、置信度阈值等） |
+| `EvalDataset` / `EvalRun` / `EvalResult` | RAG 评测：数据集 + 评测记录 + 逐题结果 |
 
 ## 权限模型
 
@@ -194,6 +195,20 @@ Query Rewrite → Redis 检索缓存命中? → 命中直接返回 / 未命中�
 
 核心服务：`retrieval_service.py` (混合检索) → `rerank_service.py` (精排) → `langgraph_workflow.py` (编排) → `llm_service.py` (生成)
 
+## 评测系统
+
+评测流程：`EvalRun` 创建 → 异步执行 `run_evaluation()` → 每题走完整检索+LLM生成 → 三项指标评分 → 聚合写入。
+
+**三项评分指标：**
+
+| 指标 | 方法 | 说明 |
+|------|------|------|
+| `answer_score` | bge-m3 embedding 余弦相似度 | 实际回答 vs 期望答案的语义相似度，清洗 `<think>` 块后计算。fallback 到 bigram Jaccard |
+| `recall_score` | 子串匹配 | 期望来源文档名在检索结果中出现的比例 |
+| `source_hit_rate` | 子串匹配 | 检索到的来源文档命中期望文档的比例 |
+
+**关键文件：** `evaluation_service.py` (执行引擎) → `evaluations.py` (API) → `evaluations/page.tsx` (前端，含逐题展开、自动轮询、分数颜色编码)
+
 ## 关键文件
 
 | 文件 | 用途 |
@@ -216,7 +231,9 @@ Query Rewrite → Redis 检索缓存命中? → 命中直接返回 / 未命中�
 | `frontend/lib/api.ts` | `apiGet`/`apiPost`/`apiPatch`/`apiDelete`（含 JWT 自动注入 + 401 刷新重试） |
 | `frontend/lib/stream.ts` | SSE 流式解析（`streamChat` 异步生成器） |
 | `frontend/components/layout/admin-layout.tsx` | 管理后台布局（权限过滤侧栏） |
+| `backend/app/services/evaluation_service.py` | 评测执行：hybrid_search 检索 → LLM 生成 → Embedding 余弦相似度评分 |
+| `backend/app/api/evaluations.py` | 评测 API：数据集 CRUD + 评测运行 + 逐题结果查看 + 删除运行 |
 
 ## 前端页面
 
-`/login`, `/register`, `/dashboard` — 公开 | `/enterprise-rag`, `/personal-rag` — 聊天页 | `/users`, `/departments`, `/permissions` — 用户管理 | `/knowledge-bases`, `/documents`, `/review` — 知识库管理 | `/model-configs`, `/rag-configs` — 配置 | `/audit-logs`, `/knowledge-gaps` — 审计 | `/evaluations`, `/monitor` — 评测运维
+`/login`, `/register`, `/dashboard` — 公开 | `/enterprise-rag`, `/personal-rag` — 聊天页 | `/users`, `/departments`, `/permissions` — 用户管理 | `/knowledge-bases`, `/documents`, `/review` — 知识库管理 | `/model-configs`, `/rag-configs` — 配置 | `/audit-logs` — 审计 | `/sessions` — 会话记录（含消息反馈+知识缺口） | `/evaluations`, `/monitor` — 评测运维

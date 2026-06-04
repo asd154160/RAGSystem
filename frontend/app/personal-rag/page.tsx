@@ -222,6 +222,13 @@ function PersonalRagInner() {
     }
   };
 
+  const handleFeedback = async (messageId: string, rating: string, reason: string) => {
+    await apiPost(`/api/sessions/messages/${messageId}/feedback`, { rating, reason });
+    setMessages(prev => prev.map(m =>
+      m.id === messageId ? { ...m, rating, rating_reason: reason } : m
+    ));
+  };
+
   const handleSourceHover = (index: number | null) => setActiveSource(index);
 
   if (!ready) return null;
@@ -328,6 +335,7 @@ function PersonalRagInner() {
             statusMsg={statusMsg}
             onSend={handleSend}
             onSourceHover={handleSourceHover}
+            onFeedback={handleFeedback}
             selectedKbIds={[]}
           />
         ) : (

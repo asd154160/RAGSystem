@@ -31,6 +31,8 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     low_confidence: Mapped[bool] = mapped_column(Boolean, default=False)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rating: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "like" / "dislike"
+    rating_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")

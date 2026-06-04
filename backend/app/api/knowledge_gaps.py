@@ -13,12 +13,15 @@ router = APIRouter(prefix="/api/knowledge-gaps", tags=["knowledge_gaps"])
 @router.get("")
 async def list_gaps(
     status: str | None = None,
+    session_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     q = select(KnowledgeGap).order_by(KnowledgeGap.created_at.desc())
     if status:
         q = q.where(KnowledgeGap.status == status)
+    if session_id:
+        q = q.where(KnowledgeGap.session_id == session_id)
     result = await db.execute(q)
     gaps = result.scalars().all()
     return [
