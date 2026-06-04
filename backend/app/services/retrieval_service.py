@@ -65,7 +65,7 @@ async def _pg_keyword_search(
                 "document_id": r.document_id,
                 "knowledge_base_id": r.knowledge_base_id,
                 "chunk_index": r.chunk_index,
-                "chunk_text": r.chunk_text[:500],
+                "chunk_text": r.chunk_text,
                 "section_title": r.section_title,
                 "page_no": r.page_no,
                 "parent_chunk_id": r.parent_chunk_id,

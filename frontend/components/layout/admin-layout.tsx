@@ -6,10 +6,9 @@ import { isAuthenticated } from "@/lib/auth";
 import { useAuth, AuthProvider } from "@/lib/auth-context";
 import {
   LayoutDashboard, Users, Building2, Shield, Database, FileText,
-  CheckCircle, LogOut, Menu, X, Cpu, Sliders, ScrollText, AlertCircle,
+  CheckCircle, LogOut, Menu, X, Cpu, Sliders, ScrollText, MessageSquare, BarChart3,
 } from "lucide-react";
 import Link from "next/link";
-import { BarChart3 } from "lucide-react";
 
 interface NavItem {
   href: string;
@@ -31,7 +30,7 @@ const navItems: NavItem[] = [
   { href: "/model-configs", label: "模型配置", icon: Cpu, permission: "manage_model_config" },
   { href: "/rag-configs", label: "RAG参数", icon: Sliders, permission: "manage_knowledge_base" },
   { href: "/audit-logs", label: "审计日志", icon: ScrollText, permission: "view_audit_logs" },
-  { href: "/knowledge-gaps", label: "知识缺口", icon: AlertCircle, permission: "manage_knowledge_base" },
+  { href: "/sessions", label: "会话记录", icon: MessageSquare, permission: "manage_knowledge_base" },
   { href: "/evaluations", label: "RAG评测", icon: BarChart3, roles: ["SuperAdmin", "Admin"] },
   { href: "/monitor", label: "系统监控", icon: Cpu, roles: ["SuperAdmin", "Admin"] },
 ];

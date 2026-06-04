@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Loader2, Database, X } from "lucide-react";
+import { Send, Bot, User, Loader2, Database, ThumbsUp, ThumbsDown } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChatMessage, RagSource } from "@/types";
@@ -31,6 +31,7 @@ interface Props {
   statusMsg: string;
   onSend: (question: string) => void;
   onSourceHover: (index: number | null) => void;
+  onFeedback: (messageId: string, rating: string, reason: string) => Promise<void>;
   kbList?: KB[];
   selectedKbIds: string[];
   onKbToggle?: (kbId: string) => void;
@@ -38,10 +39,13 @@ interface Props {
 
 export default function ChatPanel({
   messages, streaming, streamContent, statusMsg,
-  onSend, onSourceHover,
+  onSend, onSourceHover, onFeedback,
   kbList, selectedKbIds, onKbToggle,
 }: Props) {
   const [input, setInput] = useState("");
+  const [dislikeActive, setDislikeActive] = useState<Record<string, boolean>>({});
+  const [dislikeReason, setDislikeReason] = useState<Record<string, string>>({});
+  const [submittingFeedback, setSubmittingFeedback] = useState<Record<string, boolean>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -61,6 +65,26 @@ export default function ChatPanel({
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleLike = async (messageId: string) => {
+    setSubmittingFeedback(prev => ({ ...prev, [messageId]: true }));
+    try { await onFeedback(messageId, "like", ""); } catch {}
+    setSubmittingFeedback(prev => ({ ...prev, [messageId]: false }));
+  };
+
+  const handleDislike = (messageId: string) => {
+    setDislikeActive(prev => ({ ...prev, [messageId]: !prev[messageId] }));
+  };
+
+  const handleDislikeSubmit = async (messageId: string) => {
+    const reason = dislikeReason[messageId] || "";
+    if (!reason.trim()) return;
+    setSubmittingFeedback(prev => ({ ...prev, [messageId]: true }));
+    try { await onFeedback(messageId, "dislike", reason); } catch {}
+    setSubmittingFeedback(prev => ({ ...prev, [messageId]: false }));
+    setDislikeActive(prev => ({ ...prev, [messageId]: false }));
+    setDislikeReason(prev => ({ ...prev, [messageId]: "" }));
   };
 
   return (
@@ -116,6 +140,58 @@ export default function ChatPanel({
                     [{i + 1}] {s.document_name}
                   </span>
                 ))}
+              </div>
+            )}
+            {/* Feedback buttons */}
+            {m.role === "assistant" && !m.rating && (
+              <div className="ml-11 mt-2 flex items-center gap-2">
+                <button
+                  onClick={() => handleLike(m.id)}
+                  disabled={submittingFeedback[m.id]}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                >
+                  <ThumbsUp size={13} /> 有用
+                </button>
+                <button
+                  onClick={() => handleDislike(m.id)}
+                  disabled={submittingFeedback[m.id]}
+                  className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
+                    dislikeActive[m.id]
+                      ? "bg-red-100 text-red-700"
+                      : "text-gray-400 hover:text-red-600 hover:bg-red-50"
+                  }`}
+                >
+                  <ThumbsDown size={13} /> 无用
+                </button>
+                {dislikeActive[m.id] && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      placeholder="请填写反馈原因"
+                      value={dislikeReason[m.id] || ""}
+                      onChange={e => setDislikeReason(prev => ({ ...prev, [m.id]: e.target.value }))}
+                      className="flex-1 text-xs border rounded px-2 py-1 text-gray-600 placeholder-gray-300"
+                    />
+                    <button
+                      onClick={() => handleDislikeSubmit(m.id)}
+                      disabled={submittingFeedback[m.id] || !(dislikeReason[m.id] || "").trim()}
+                      className="rounded px-2.5 py-1 text-xs bg-red-600 text-white hover:bg-red-700 disabled:opacity-40"
+                    >
+                      提交
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Feedback result */}
+            {m.role === "assistant" && m.rating && (
+              <div className="ml-11 mt-2">
+                <span className={`inline-flex items-center gap-1 text-xs ${
+                  m.rating === "like" ? "text-green-600" : "text-red-600"
+                }`}>
+                  {m.rating === "like" ? <ThumbsUp size={12} /> : <ThumbsDown size={12} />}
+                  {m.rating === "like" ? "已反馈：有用" : `已反馈：无用${m.rating_reason ? ` — ${m.rating_reason}` : ""}`}
+                </span>
               </div>
             )}
           </div>

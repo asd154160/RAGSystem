@@ -14,10 +14,15 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 @router.get("")
 async def list_sessions(
     kb_type: str | None = None,
+    user_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    q = select(ChatSession).where(ChatSession.user_id == current_user.id)
+    q = select(ChatSession)
+    if user_id:
+        q = q.where(ChatSession.user_id == user_id)
+    else:
+        q = q.where(ChatSession.user_id == current_user.id)
     if kb_type:
         q = q.where(ChatSession.kb_type == kb_type)
     q = q.order_by(ChatSession.updated_at.desc())
@@ -28,6 +33,7 @@ async def list_sessions(
             "id": s.id,
             "title": s.title or "新对话",
             "kb_type": s.kb_type,
+            "user_id": s.user_id,
             "created_at": s.created_at.isoformat() if s.created_at else None,
             "updated_at": s.updated_at.isoformat() if s.updated_at else None,
         }
@@ -61,6 +67,8 @@ async def get_session(
                 "role": m.role,
                 "content": m.content,
                 "low_confidence": m.low_confidence,
+                "rating": m.rating,
+                "rating_reason": m.rating_reason,
                 "created_at": m.created_at.isoformat() if m.created_at else None,
                 "sources": [
                     {
@@ -112,12 +120,10 @@ async def feedback(
     msg = result.scalar_one_or_none()
     if not msg:
         return {"error": "消息不存在"}, 404
-    # Store feedback as message metadata (extend content or use existing fields)
-    # For now, append feedback to low_confidence field misuse-free: use a simple approach
     rating = data.get("rating", "")
-    reason = data.get("reason", "")
-    # Append feedback info to the message - simple approach
-    if reason:
-        msg.content = msg.content + f"\n\n[反馈: {rating}] {reason}" if msg.content else f"[反馈: {rating}] {reason}"
+    if rating not in ("like", "dislike"):
+        return {"error": "rating 必须为 like 或 dislike"}, 400
+    msg.rating = rating
+    msg.rating_reason = data.get("reason", "")
     await db.commit()
     return {"message": "反馈已记录", "rating": rating}

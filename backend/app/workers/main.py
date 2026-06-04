@@ -293,7 +293,7 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
                 "parent_chunk_id": chunk.parent_chunk_id or "",
                 "chunk_index": chunk.chunk_index,
                 "embedding": emb,
-                "chunk_text": chunk.chunk_text,
+                "chunk_text": (chunk.contextual_text + "\n\n" + chunk.chunk_text) if chunk.contextual_text else chunk.chunk_text,
                 "section_title": chunk.section_title or "",
             })
 

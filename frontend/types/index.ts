@@ -32,6 +32,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   sources?: RagSource[];
+  rating?: string | null;
+  rating_reason?: string | null;
   created_at: string;
 }
 
