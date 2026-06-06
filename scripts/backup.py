@@ -121,7 +121,7 @@ def backup_milvus(output_dir: Path, batch: int = 1000) -> Path:
 
     fields = [
         "id", "chunk_id", "document_id", "knowledge_base_id",
-        "parent_chunk_id", "chunk_index", "chunk_text", "section_title",
+        "parent_chunk_id", "chunk_index", "chunk_text", "section_title", "is_active",
     ]
 
     milvus_dir = output_dir / "milvus"

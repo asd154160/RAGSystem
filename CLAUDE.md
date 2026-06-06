@@ -89,6 +89,15 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 | Milvus | JSON 分片文件 | chunk metadata（不含 embedding 向量） |
 
 > Milvus embedding 向量不在备份中（pymilvus 不支持批量导出向量）。恢复后需通过 worker 重新 embedding。
+> Milvus 备份/恢复包含 `is_active` 字段（Bool），用于索引过滤。
+
+## Schema 迁移
+
+```bash
+# Milvus schema 变更后重建索引
+docker compose exec backend python scripts/migrate_milvus_schema.py --dry-run  # 检查是否需迁移
+docker compose exec backend python scripts/migrate_milvus_schema.py --force     # 为所有已发布文档创建 embed 任务
+```
 
 ## 登录账号
 
@@ -141,6 +150,7 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 - **模型文件**：`models/` 目录首次启动时自动从 HuggingFace 下载 bge-m3 + bge-reranker-v2-m3（约 3GB），也可手动运行 `python scripts/download_models.py` 预下载。国内用户设置 `HF_ENDPOINT=https://hf-mirror.com` 加速
 - **GPU 要求**：可选。默认 CPU 模式可直接运行。有 NVIDIA GPU 时使用 `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d` 启用 GPU 加速（需 nvidia-container-toolkit）
 - **LLM 配置**：DB 中 `model_configs` 表的 `is_default=true` 模型优先于 `.env`。无 DB 配置时回退 `.env` 的 `LLM_API_KEY`
+- **KB 级权限**：`UserKBOverride`（allow/deny）控制用户对特定 KB 的查询权限。默认所有登录用户可查询所有企业 KB，Admin/SuperAdmin 始终可见全部。`kb_access.py` 提供 `get_accessible_kb_ids()` 查询访问列表。
 - **DB session 双模式**：`db/session.py` 提供 `async_session`（FastAPI 异步）和 `sync_session`（worker/Celery 同步），互不干扰
 
 ## 数据模型
@@ -154,7 +164,7 @@ docker compose exec backend sh -c "cd /app && python scripts/restore.py --confir
 | `KnowledgeBase` | 知识库（含 `kb_type`: `enterprise` / `personal`） |
 | `Document` / `DocumentVersion` / `DocumentProcessingTask` | 文档生命周期 + 版本 + 异步任务 |
 | `Chunk` | 文档块，`is_active` / `status` 控制可检索性 |
-| `ConversationSession` / `ConversationMessage` | 会话 + 消息（含反馈 `rating`） |
+| `ChatSession` / `ChatMessage` | 会话 + 消息（含反馈 `rating`） |
 | `ModelConfig` / `RAGConfig` | LLM 配置 + RAG 超参（top_k、置信度阈值等） |
 | `EvalDataset` / `EvalRun` / `EvalResult` | RAG 评测：数据集 + 评测记录 + 逐题结果 |
 
@@ -190,10 +200,16 @@ Access Token (30 min) + Refresh Token (7 days)，JWT Bearer。前端 `api.ts` �
 ## 检索链路
 
 ```
-Query Rewrite → Redis 检索缓存命中? → 命中直接返回 / 未命中→ Milvus向量 + pg_trgm关键词 → RRF融合 → Rerank精排 → 置信度检测 → Parent Chunk回填 → LLM生成
+Query Rewrite → Redis 检索缓存命中? → 命中直接返回 / 未命中→ Milvus向量(is_active过滤) + pg_trgm关键词 → RRF融合 → Rerank精排 → 置信度检测 → Parent Chunk回填 → DB二次校验(chunk.is_active + document.status) → LLM流式生成
 ```
 
-核心服务：`retrieval_service.py` (混合检索) → `rerank_service.py` (精排) → `langgraph_workflow.py` (编排) → `llm_service.py` (生成)
+两层 Metadata 过滤：
+1. **向量检索时**：Milvus `search()` expr 固定 `is_active == True`，从源头排除失效 chunk
+2. **检索结果后**：`validate_retrieval_results()` 回查 PostgreSQL 验证 chunk 和文档状态，过滤索引滞后
+
+文档 offline 时主动清理 Milvus 向量（`delete_by_document_id`）。Milvus schema 变更后运行 `docker compose exec backend python scripts/migrate_milvus_schema.py --force` 重建索引。
+
+核心服务：`retrieval_service.py` (混合检索 + 校验) → `rerank_service.py` (精排) → `langgraph_workflow.py` (编排) → `llm_service.py` (生成)
 
 ## 评测系统
 
@@ -220,9 +236,10 @@ Query Rewrite → Redis 检索缓存命中? → 命中直接返回 / 未命中�
 | `backend/whl/` | PyTorch CUDA 12.4 本地 wheel（torch-2.5.1+cu124，867MB），构建时免下载 |
 | `backend/Dockerfile` | Docker 构建：本地 wheel 安装 PyTorch → 清华镜像安装其他依赖 |
 | `backend/app/workers/main.py` | 异步 Worker——轮询 document_processing_tasks，parse→chunk→embed→index |
-| `backend/app/services/retrieval_service.py` | 混合检索：Milvus 向量 + pg_trgm 关键词 + RRF 融合 |
-| `backend/app/services/langgraph_workflow.py` | LangGraph StateGraph：query_rewrite→retrieve→rerank→check→generate |
+| `backend/app/services/retrieval_service.py` | 混合检索：Milvus 向量 + pg_trgm 关键词 + RRF 融合 + DB 二次校验（validate_retrieval_results） |
+| `backend/app/services/langgraph_workflow.py` | LangGraph StateGraph（纯流式）：rewrite→retrieve→rerank→check→expand→LLM 流式生成 |
 | `backend/app/services/chunking.py` | 企业 RAG（标准）和个人 RAG（parent-child）两种分块策略 |
+| `backend/app/services/kb_access.py` | KB 查询权限：`get_accessible_kb_ids()` 基于 UserKBOverride（allow/deny）控制 |
 | `backend/app/api/enterprise_rag.py` | 企业 RAG SSE 问答（含 metrics 埋点、审计、知识缺口） |
 | `backend/app/api/personal_rag.py` | 个人 RAG SSE 问答 + 文件上传/管理（含自动 KB 创建） |
 | `backend/app/api/sessions.py` | 会话 CRUD + 用户反馈 |

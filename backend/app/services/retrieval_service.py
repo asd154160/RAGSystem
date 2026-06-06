@@ -242,43 +242,38 @@ async def get_rag_configs(knowledge_base_ids: list[str]) -> dict[str, RAGConfig]
         return {cfg.knowledge_base_id: cfg for cfg in result.scalars().all()}
 
 
-async def full_retrieval_pipeline(
-    query: str,
-    top_k: int = 10,
-    knowledge_base_ids: list[str] | None = None,
-    enable_rerank: bool = True,
-    enable_parent_expand: bool = True,
-    rerank_top_n: int = 6,
-    score_threshold: float = 0.45,
-) -> dict:
-    """
-    完整检索链路: hybrid search → rerank → parent chunk expand
-    返回 {"results": [...], "low_confidence": bool}
-    """
-    # 1. Hybrid search (vector + keyword + RRF)
-    results = await hybrid_search(query, top_k=top_k * 2, knowledge_base_ids=knowledge_base_ids)
+async def validate_retrieval_results(results: list[dict]) -> list[dict]:
+    """二次校验：检索结果中的 chunk 在 DB 中是否仍然 is_active 且文档为 published 状态。
+    过滤掉已失效的 chunk，防止 Milvus 索引滞后或配置异常导致脏数据进入 LLM。"""
+    if not results:
+        return results
 
-    # 2. Rerank
-    if enable_rerank:
-        results = await rerank_results(query, results, top_n=rerank_top_n)
+    chunk_ids = [r.get("chunk_id") for r in results if r.get("chunk_id")]
+    if not chunk_ids:
+        return results
 
-    # 3. Low confidence check (before parent expand, using rerank scores)
-    low_confidence = False
-    if results:
-        max_score = max(r.get("score", 0) for r in results)
-        if max_score < score_threshold:
-            low_confidence = True
-    else:
-        low_confidence = True
+    async with async_session() as db:
+        result = await db.execute(
+            text("""
+                SELECT c.chunk_id
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE c.chunk_id = ANY(:chunk_ids)
+                  AND c.is_active = true
+                  AND d.status = 'published'
+            """),
+            {"chunk_ids": chunk_ids},
+        )
+        valid_ids = {row[0] for row in result.fetchall()}
 
-    # 4. Parent chunk expansion
-    if enable_parent_expand:
-        results = await expand_parent_chunks(results)
-
-    return {
-        "results": results,
-        "low_confidence": low_confidence,
-    }
+    filtered = [r for r in results if r.get("chunk_id") in valid_ids]
+    removed = len(results) - len(filtered)
+    if removed > 0:
+        logger.warning(
+            f"Validation filtered out {removed}/{len(results)} stale chunks "
+            f"(chunks not active or document not published in DB)"
+        )
+    return filtered
 
 
 def build_context(results: list[dict]) -> str:

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 COLLECTION_NAME = "rag_chunks"
 DIM = 1024  # bge-m3 dimension
 REQUIRED_FIELDS = {"id", "chunk_id", "document_id", "knowledge_base_id", "parent_chunk_id",
-                   "chunk_index", "embedding", "chunk_text", "section_title"}
+                   "chunk_index", "embedding", "chunk_text", "section_title", "is_active"}
 
 _connected = False
 
@@ -75,6 +75,7 @@ def _create_collection():
         FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=DIM),
         FieldSchema(name="chunk_text", dtype=DataType.VARCHAR, max_length=65535),
         FieldSchema(name="section_title", dtype=DataType.VARCHAR, max_length=500),
+        FieldSchema(name="is_active", dtype=DataType.BOOL),
     ]
     schema = CollectionSchema(fields, description="RAG Chunks Collection")
     col = Collection(COLLECTION_NAME, schema)
@@ -106,6 +107,7 @@ def insert_chunks(chunks_data: list[dict]) -> list[str]:
         [d["embedding"] for d in chunks_data],
         [d.get("chunk_text", "")[:65535] for d in chunks_data],
         [d.get("section_title", "")[:500] for d in chunks_data],
+        [d.get("is_active", True) for d in chunks_data],
     ]
     col.insert(entities)
     col.flush()
@@ -114,10 +116,10 @@ def insert_chunks(chunks_data: list[dict]) -> list[str]:
 
 def delete_by_document_id(document_id: str) -> int:
     """按 document_id 删除向量，返回删除数量"""
+    connect()
     if not utility.has_collection(COLLECTION_NAME):
         return 0
-    col = Collection(COLLECTION_NAME)
-    col.load()
+    col = get_collection()
     expr = f'document_id == "{document_id}"'
     result = col.delete(expr)
     col.flush()
@@ -149,10 +151,10 @@ def search(
     col = get_collection()
     search_params = {"metric_type": "COSINE", "params": {"nprobe": 16}}
 
-    expr = None
+    expr = "is_active == True"
     if knowledge_base_ids:
         kb_list = ', '.join(f'"{kid}"' for kid in knowledge_base_ids)
-        expr = f"knowledge_base_id in [{kb_list}]"
+        expr = f"knowledge_base_id in [{kb_list}] and {expr}"
 
     results = col.search(
         data=[query_embedding],

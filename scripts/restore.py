@@ -200,6 +200,7 @@ def restore_milvus(backup_dir: Path):
             [[0.0] * 1024 for _ in rows],  # placeholder embedding
             [r.get("chunk_text", "")[:65535] for r in rows],
             [r.get("section_title", "")[:500] for r in rows],
+            [r.get("is_active", True) for r in rows],
         ]
         col.insert(entities)
         total += len(rows)

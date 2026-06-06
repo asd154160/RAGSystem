@@ -3,27 +3,6 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-class KBPermissionCreate(BaseModel):
-    role_id: str | None = None
-    department_id: str | None = None
-    user_id: str | None = None
-    permission_type: str
-
-
-class KBPermissionResponse(BaseModel):
-    id: str
-    knowledge_base_id: str
-    role_id: str | None = None
-    department_id: str | None = None
-    user_id: str | None = None
-    permission_type: str
-    role_name: str | None = None
-    department_name: str | None = None
-    user_name: str | None = None
-
-    model_config = {"from_attributes": True}
-
-
 class UserOverrideCreate(BaseModel):
     user_id: str
     override_type: str = "allow"
@@ -56,7 +35,6 @@ class KnowledgeBaseResponse(BaseModel):
     type: str
     owner_user_id: str | None
     is_active: bool
-    permissions: list[KBPermissionResponse] = []
     user_overrides: list[UserOverrideResponse] = []
     created_at: datetime
     updated_at: datetime
