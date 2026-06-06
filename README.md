@@ -163,7 +163,7 @@ RAGSystem/
 │   │   │   ├── models/                 # 16 个 SQLAlchemy 模型
 │   │   │   ├── session.py              # async + sync 数据库引擎
 │   │   │   └── seed.py                 # 种子数据（角色/权限/用户）
-│   │   ├── api/                        # 14 个路由模块（knowledge-gaps 合并到 sessions）
+│   │   ├── api/                        # 14 个路由模块
 │   │   │   ├── auth.py                 # 登录/刷新/退出/当前用户
 │   │   │   ├── users.py                # 用户 CRUD + 密码修改 + 个人RAG开关
 │   │   │   ├── departments.py          # 部门 CRUD + M2M 成员管理
@@ -268,7 +268,7 @@ RAGSystem/
 | GET | `/api/knowledge-bases/accessible` | 需登录 | 当前用户有权查询的 KB（权限过滤后） |
 | POST | `/api/knowledge-bases` | Admin | 创建知识库 |
 | GET/PATCH/DELETE | `/api/knowledge-bases/{id}` | 需登录 / Admin / Admin | KB 详情 / 更新 / 删除 |
-| GET/POST/DELETE | `/api/knowledge-bases/{id}/permissions` | 需登录 / Admin / Admin | KB 权限列表 / 分配 / 移除 |
+| GET/POST/DELETE | `/api/knowledge-bases/{id}/user-overrides` | 需登录 / Admin / Admin | KB 用户查询覆盖（allow/deny） |
 | GET/POST/DELETE | `/api/knowledge-bases/{id}/user-overrides` | 需登录 / Admin / Admin | 用户覆盖列表 / 添加 / 移除 |
 | GET/PATCH | `/api/knowledge-bases/{id}/rag-config` | 需登录 | RAG 参数配置 |
 | POST | `/api/documents/upload` | upload_document | 上传文档（txt/md/pdf/docx/xlsx/pptx，≤100MB） |
@@ -416,6 +416,7 @@ RAG 检索链路由 `langgraph_workflow.py` 中的 **StateGraph** 编排，将�
                       │
                 ┌─────▼────┐
                 │ retrieve  │  混合检索 + RRF 融合 + 去重
+                │           │  Milvus 过滤: knowledge_base_id + is_active=True
                 └─────┬────┘
                       │
                 ┌─────▼────┐
@@ -427,11 +428,7 @@ RAG 检索链路由 `langgraph_workflow.py` 中的 **StateGraph** 编排，将�
               └───────┬───────┘
                       │ (always)
               ┌───────▼───────┐
-              │    expand     │  Parent Chunk 回填 + 构建 context/sources
-              └───────┬───────┘
-                      │
-              ┌───────▼───────┐
-              │   generate    │  LLM 流式生成（仅非流式场景，流式在 graph 外部处理）
+              │    expand     │  Parent Chunk 回填 → DB 二次校验 → 构建 context/sources
               └───────────────┘
 ```
 
@@ -440,11 +437,19 @@ RAG 检索链路由 `langgraph_workflow.py` 中的 **StateGraph** 编排，将�
 | 节点 | 文件/函数 | 职责 |
 |------|-----------|------|
 | `rewrite` | `query_rewrite.py` | LLM 检测复合问题 → 拆分子问题 / 多角度改写，返回 `["q1", "q2", ...]` |
-| `retrieve` | `retrieval_service.hybrid_search()` | 对每个改写查询执行 Milvus 向量 + pg_trgm 关键词双路召回 → RRF 融合 → chunk_id 去重 |
+| `retrieve` | `retrieval_service.hybrid_search()` | 对每个改写查询执行 Milvus 向量 + pg_trgm 关键词双路召回 → RRF 融合 → chunk_id 去重。Milvus 端过滤 `knowledge_base_id in [...] and is_active == True` |
 | `rerank` | `retrieval_service.rerank_results()` | bge-reranker-v2-m3 Cross-encoder 对检索结果精排，保留前 `rerank_top_n` 条 |
 | `check_confidence` | `langgraph_workflow._make_confidence_node()` | 计算 `max_score`：若 `max_score < score_threshold` 则 `low_confidence=True` |
-| `expand` | `retrieval_service.expand_parent_chunks()` | Parent Chunk 回填（child→parent 上下文扩展），拼接 `context` 文本，构建 `sources` 列表 |
-| `generate` | `langgraph_workflow._make_generate_node()` | 仅非流式场景使用；流式场景中 LLM 生成在 graph 外部由 `run_rag_stream()` 直接处理 |
+| `expand` | `retrieval_service.expand_parent_chunks()` + `validate_retrieval_results()` | Parent Chunk 回填 → DB 二次校验（回查 is_active + document.status）→ 拼接 context → 构建 sources |
+
+**两层 Metadata 过滤机制：**
+
+| 层级 | 位置 | 机制 |
+|------|------|------|
+| 向量检索时 | `milvus_service.search()` | Milvus expr 过滤 `is_active == True`，从源头排除失效 chunk |
+| 检索结果后 | `retrieval_service.validate_retrieval_results()` | DB 回查 chunk 和 document 状态，过滤索引滞后/配置异常导致的脏数据 |
+
+文档状态变更时也会主动清理 Milvus：`offline` 端点调用 `delete_by_document_id()`；`publish` 时 worker 先删后插，只插入 active chunk。Schema 迁移使用 `scripts/migrate_milvus_schema.py --force`。
 
 **回答生成策略（`run_rag_stream` 中的关键决策）：**
 
@@ -467,10 +472,7 @@ graph 执行完毕 → 获取 context / low_confidence / sources
                     • sources 包含相关文档引用
 ```
 
-**流式 vs 非流式：**
-
-- **流式（SSE）**：`run_rag_stream()` — graph 不含 generate 节点，graph 执行到 expand 后由外部函数直接调用 `llm_service.generate_stream()` 逐 token 产出 SSE 事件
-- **非流式**：`build_rag_graph(include_generate=True)` — graph 含 generate 节点，`graph.ainvoke()` 返回完整 `answer`
+所有 RAG 问答均通过 `run_rag_stream()` 流式 SSE 输出。Graph 执行检索链路（rewrite → retrieve → rerank → check_confidence → expand），LLM 生成在 graph 外部由 `llm_service.generate_stream()` 逐 token 产出。
 
 ---
 
@@ -488,22 +490,17 @@ graph 执行完毕 → 获取 context / low_confidence / sources
 | User | query_knowledge_base |
 | userin | query_knowledge_base（个人 RAG 专用） |
 
-**KB 级权限** — 控制知识库访问：
+**KB 级权限** — 控制知识库查询访问：
 
 ```
-KnowledgeBasePermission(knowledge_base_id,  permission_type,
-                        role_id?,           department_id?,       user_id?)
-                              ↑                   ↑                   ↑
-                         按角色授权            按部门授权           按用户授权
-
-UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆盖
+UserKBOverride(user_id, knowledge_base_id, allow|deny)
 ```
 
 解析逻辑（`kb_access.py`）：
-1. Admin/SuperAdmin → 可访问全部 KB
-2. 无权限配置的 KB → 全员开放
-3. 有权限配置的 KB → 匹配 user_id / department_id（FK+M2M）/ role_id
-4. UserKBOverride：deny 剔除，allow 放行
+1. Admin/SuperAdmin → 始终可访问全部 KB
+2. 默认：所有登录用户可查询所有企业 KB
+3. UserKBOverride.deny → 禁止该用户查询指定 KB
+4. UserKBOverride.allow → 显式允许（用于从 deny 中恢复）
 
 **部门-用户连接：**
 - `User.department_id` (FK，直属部门)
@@ -551,7 +548,7 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)  — 用户级优先覆�
 | 问答 | Think Block | `<think>` 思考过程自动折叠，可展开查看 |
 | 问答 | 来源引用 | `[编号] 文档名` 带 hover 详情卡片 |
 | 权限 | 系统 RBAC | 5 角色 × 9 权限，前后端双重检查 |
-| 权限 | KB 级权限 | 按角色/部门/用户 + 7 种权限类型 + 用户级覆盖 |
+| 权限 | KB 级权限 | 按用户 allow/deny 控制知识库查询访问 |
 | 权限 | 部门连接 | User FK + M2M 双路部门归属 |
 | 管理 | 会话管理 | 创建/列表/删除/反馈(like/dislike) |
 | 管理 | 审计日志 | 全量操作记录，按 action/user_id 过滤 |

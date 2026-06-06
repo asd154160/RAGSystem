@@ -4,13 +4,11 @@ from sqlalchemy.orm import selectinload
 
 from app.core.security import get_current_user, require_role
 from app.db.session import AsyncSession, get_db
-from app.db.models import KnowledgeBase, KnowledgeBasePermission, UserKBOverride, User, RAGConfig
-from app.db.models import Role, Department
+from app.db.models import KnowledgeBase, UserKBOverride, User, RAGConfig
 from app.services import minio_service, milvus_service
 from app.services.kb_access import get_accessible_kb_ids
 from app.schemas.knowledge_base import (
     KnowledgeBaseCreate, KnowledgeBaseUpdate, KnowledgeBaseResponse,
-    KBPermissionCreate, KBPermissionResponse,
     UserOverrideCreate, UserOverrideResponse,
     RAGConfigRequest,
 )
@@ -24,7 +22,7 @@ async def list_kbs(
     current_user: User = Depends(get_current_user),
 ):
     query = select(KnowledgeBase).options(
-        selectinload(KnowledgeBase.permissions), selectinload(KnowledgeBase.user_overrides)
+        selectinload(KnowledgeBase.user_overrides)
     ).where(
         (KnowledgeBase.type == "enterprise") |
         ((KnowledgeBase.type == "personal") & (KnowledgeBase.owner_user_id == current_user.id))
@@ -82,7 +80,7 @@ async def get_kb(
 ):
     result = await db.execute(
         select(KnowledgeBase)
-        .options(selectinload(KnowledgeBase.permissions), selectinload(KnowledgeBase.user_overrides))
+        .options(selectinload(KnowledgeBase.user_overrides))
         .where(KnowledgeBase.id == kb_id)
     )
     kb = result.scalar_one_or_none()
@@ -100,7 +98,7 @@ async def update_kb(
 ):
     result = await db.execute(
         select(KnowledgeBase)
-        .options(selectinload(KnowledgeBase.permissions), selectinload(KnowledgeBase.user_overrides))
+        .options(selectinload(KnowledgeBase.user_overrides))
         .where(KnowledgeBase.id == kb_id)
     )
     kb = result.scalar_one_or_none()
@@ -121,7 +119,6 @@ async def delete_kb(
     current_user: User = Depends(get_current_user),
     _: None = Depends(require_role("SuperAdmin", "Admin")),
 ):
-    # Check existence
     result = await db.execute(select(KnowledgeBase.id).where(KnowledgeBase.id == kb_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="知识库不存在")
@@ -150,86 +147,6 @@ async def delete_kb(
 
     # Core delete: bypasses ORM, DB CASCADE handles documents/versions/tasks/chunks
     await db.execute(sql_delete(KnowledgeBase).where(KnowledgeBase.id == kb_id))
-    await db.commit()
-
-
-# ── Permissions ──────────────────────────────────────────────
-
-@router.get("/{kb_id}/permissions", response_model=list[KBPermissionResponse])
-async def list_kb_permissions(
-    kb_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    result = await db.execute(
-        select(KnowledgeBasePermission).where(
-            KnowledgeBasePermission.knowledge_base_id == kb_id
-        )
-    )
-    perms = result.scalars().all()
-
-    # Resolve names
-    role_ids = [p.role_id for p in perms if p.role_id]
-    dept_ids = [p.department_id for p in perms if p.department_id]
-    user_ids = [p.user_id for p in perms if p.user_id]
-
-    role_map = {}
-    if role_ids:
-        r = await db.execute(select(Role.id, Role.name).where(Role.id.in_(role_ids)))
-        role_map = {row[0]: row[1] for row in r.fetchall()}
-    dept_map = {}
-    if dept_ids:
-        d = await db.execute(select(Department.id, Department.name).where(Department.id.in_(dept_ids)))
-        dept_map = {row[0]: row[1] for row in d.fetchall()}
-    user_map = {}
-    if user_ids:
-        u = await db.execute(select(User.id, User.username).where(User.id.in_(user_ids)))
-        user_map = {row[0]: row[1] for row in u.fetchall()}
-
-    return [
-        KBPermissionResponse(
-            id=p.id, knowledge_base_id=p.knowledge_base_id,
-            role_id=p.role_id, department_id=p.department_id, user_id=p.user_id,
-            permission_type=p.permission_type.value,
-            role_name=role_map.get(p.role_id),
-            department_name=dept_map.get(p.department_id),
-            user_name=user_map.get(p.user_id),
-        )
-        for p in perms
-    ]
-
-
-@router.post("/{kb_id}/permissions", response_model=KBPermissionResponse, status_code=status.HTTP_201_CREATED)
-async def add_kb_permission(
-    kb_id: str, data: KBPermissionCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    _: None = Depends(require_role("SuperAdmin", "Admin")),
-):
-    perm = KnowledgeBasePermission(knowledge_base_id=kb_id, **data.model_dump())
-    db.add(perm)
-    await db.commit()
-    await db.refresh(perm)
-    return perm
-
-
-@router.delete("/{kb_id}/permissions/{perm_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_kb_permission(
-    kb_id: str, perm_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    _: None = Depends(require_role("SuperAdmin", "Admin")),
-):
-    result = await db.execute(
-        select(KnowledgeBasePermission).where(
-            KnowledgeBasePermission.id == perm_id,
-            KnowledgeBasePermission.knowledge_base_id == kb_id,
-        )
-    )
-    perm = result.scalar_one_or_none()
-    if not perm:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="权限不存在")
-    await db.delete(perm)
     await db.commit()
 
 

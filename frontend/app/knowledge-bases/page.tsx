@@ -10,50 +10,24 @@ interface KnowledgeBase {
   type: string; is_active: boolean; created_at: string;
 }
 
-interface KBPermission {
-  id: string; knowledge_base_id: string;
-  role_id: string | null; department_id: string | null; user_id: string | null;
-  permission_type: string;
-  role_name?: string | null; department_name?: string | null; user_name?: string | null;
-}
-
 interface UserOverride {
   id: string; user_id: string; knowledge_base_id: string; override_type: string;
 }
 
-interface Role { id: string; name: string; }
-interface Department { id: string; name: string; }
 interface UserBrief { id: string; username: string; email: string; }
-
-const PERM_TYPES = ["view", "query", "upload", "review", "publish", "manage", "delete"];
-const PERM_LABELS: Record<string, string> = {
-  view: "查看", query: "查询", upload: "上传", review: "审核",
-  publish: "发布", manage: "管理", delete: "删除",
-};
 
 export default function KnowledgeBasesPage() {
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
   const [users, setUsers] = useState<UserBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", type: "enterprise" });
   const [error, setError] = useState("");
 
-  // Permission management state
-  const [permKbId, setPermKbId] = useState<string | null>(null);
-  const [permKbName, setPermKbName] = useState("");
-  const [permissions, setPermissions] = useState<KBPermission[]>([]);
+  // Override management state
+  const [overrideKbId, setOverrideKbId] = useState<string | null>(null);
+  const [overrideKbName, setOverrideKbName] = useState("");
   const [overrides, setOverrides] = useState<UserOverride[]>([]);
-  const [permLoading, setPermLoading] = useState(false);
-
-  // "Add permission" form state
-  const [newPermType, setNewPermType] = useState("role"); // role | department | user
-  const [newPermRoleId, setNewPermRoleId] = useState("");
-  const [newPermDeptId, setNewPermDeptId] = useState("");
-  const [newPermUserId, setNewPermUserId] = useState("");
-  const [newPermAction, setNewPermAction] = useState("query");
 
   // "Add override" form state
   const [newOverrideUserId, setNewOverrideUserId] = useState("");
@@ -67,18 +41,14 @@ export default function KnowledgeBasesPage() {
     finally { setLoading(false); }
   }, []);
 
-  const fetchMeta = useCallback(async () => {
+  const fetchUsers = useCallback(async () => {
     try {
-      const [r, d, u] = await Promise.all([
-        apiGet<Role[]>("/api/roles"),
-        apiGet<Department[]>("/api/departments"),
-        apiGet<UserBrief[]>("/api/users"),
-      ]);
-      setRoles(r); setDepartments(d); setUsers(u);
+      const u = await apiGet<UserBrief[]>("/api/users");
+      setUsers(u);
     } catch (err) { console.error(err); }
   }, []);
 
-  useEffect(() => { fetchKbs(); fetchMeta(); }, [fetchKbs, fetchMeta]);
+  useEffect(() => { fetchKbs(); fetchUsers(); }, [fetchKbs, fetchUsers]);
 
   async function handleCreate() {
     if (!form.name.trim()) { setError("请输入知识库名称"); return; }
@@ -115,69 +85,34 @@ export default function KnowledgeBasesPage() {
 
   function cancelEdit() { setEditingId(null); }
 
-  // ── Permission management ──
+  // ── Override management ──
 
-  async function openPermissions(kb: KnowledgeBase) {
-    setPermKbId(kb.id);
-    setPermKbName(kb.name);
-    setNewPermRoleId(""); setNewPermDeptId(""); setNewPermUserId("");
-    setNewPermAction("query"); setNewOverrideUserId(""); setNewOverrideType("allow");
-    setPermLoading(true);
+  async function openOverrides(kb: KnowledgeBase) {
+    setOverrideKbId(kb.id);
+    setOverrideKbName(kb.name);
+    setNewOverrideUserId(""); setNewOverrideType("allow");
     try {
-      const [p, o] = await Promise.all([
-        apiGet<KBPermission[]>(`/api/knowledge-bases/${kb.id}/permissions`),
-        apiGet<UserOverride[]>(`/api/knowledge-bases/${kb.id}/user-overrides`),
-      ]);
-      setPermissions(p); setOverrides(o);
-    } catch (err) { console.error(err); }
-    finally { setPermLoading(false); }
-  }
-
-  async function handleAddPermission() {
-    if (!permKbId) return;
-    const body: Record<string, string> = { permission_type: newPermAction };
-    if (newPermType === "role") { body.role_id = newPermRoleId; }
-    else if (newPermType === "department") { body.department_id = newPermDeptId; }
-    else { body.user_id = newPermUserId; }
-
-    const valid = (newPermType === "role" && newPermRoleId) ||
-      (newPermType === "department" && newPermDeptId) ||
-      (newPermType === "user" && newPermUserId);
-    if (!valid) return;
-
-    try {
-      await apiPost(`/api/knowledge-bases/${permKbId}/permissions`, body);
-      // Refresh permissions
-      const p = await apiGet<KBPermission[]>(`/api/knowledge-bases/${permKbId}/permissions`);
-      setPermissions(p);
-      setNewPermRoleId(""); setNewPermDeptId(""); setNewPermUserId("");
-    } catch (err) { console.error(err); }
-  }
-
-  async function handleDeletePermission(permId: string) {
-    if (!permKbId) return;
-    try {
-      await apiDelete(`/api/knowledge-bases/${permKbId}/permissions/${permId}`);
-      setPermissions(prev => prev.filter(p => p.id !== permId));
+      const o = await apiGet<UserOverride[]>(`/api/knowledge-bases/${kb.id}/user-overrides`);
+      setOverrides(o);
     } catch (err) { console.error(err); }
   }
 
   async function handleAddOverride() {
-    if (!permKbId || !newOverrideUserId) return;
+    if (!overrideKbId || !newOverrideUserId) return;
     try {
-      await apiPost(`/api/knowledge-bases/${permKbId}/user-overrides`, {
+      await apiPost(`/api/knowledge-bases/${overrideKbId}/user-overrides`, {
         user_id: newOverrideUserId, override_type: newOverrideType,
       });
-      const o = await apiGet<UserOverride[]>(`/api/knowledge-bases/${permKbId}/user-overrides`);
+      const o = await apiGet<UserOverride[]>(`/api/knowledge-bases/${overrideKbId}/user-overrides`);
       setOverrides(o);
       setNewOverrideUserId("");
     } catch (err) { console.error(err); }
   }
 
   async function handleDeleteOverride(overrideId: string) {
-    if (!permKbId) return;
+    if (!overrideKbId) return;
     try {
-      await apiDelete(`/api/knowledge-bases/${permKbId}/user-overrides/${overrideId}`);
+      await apiDelete(`/api/knowledge-bases/${overrideKbId}/user-overrides/${overrideId}`);
       setOverrides(prev => prev.filter(o => o.id !== overrideId));
     } catch (err) { console.error(err); }
   }
@@ -224,135 +159,61 @@ export default function KnowledgeBasesPage() {
           </div>
         )}
 
-        {/* Permission management modal */}
-        {permKbId && (
+        {/* Override management modal */}
+        {overrideKbId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-            <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl max-h-[85vh] overflow-y-auto">
+            <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="font-semibold text-gray-800">
                   <Shield size={16} className="inline mr-1.5" />
-                  {permKbName} — 权限管理
+                  {overrideKbName} — 查询权限
                 </h3>
-                <button onClick={() => setPermKbId(null)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
+                <button onClick={() => setOverrideKbId(null)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
               </div>
 
-              {permLoading ? (
-                <p className="text-sm text-gray-400 py-8 text-center">加载中...</p>
-              ) : (
-                <>
-                  {/* Current permissions */}
-                  <div className="mb-5">
-                    <p className="text-xs text-gray-500 mb-2">
-                      当前权限（{permissions.length}条）
-                      {permissions.length === 0 && " — 无权限配置时，知识库对全员开放"}
-                    </p>
-                    <div className="max-h-44 space-y-1 overflow-y-auto">
-                      {permissions.map(p => (
-                        <div key={p.id} className="flex items-center justify-between rounded bg-gray-50 px-3 py-1.5 text-xs">
-                          <span>
-                            <span className="font-medium text-gray-600 mr-2">
-                              [{PERM_LABELS[p.permission_type] || p.permission_type}]
-                            </span>
-                            {p.role_name && <span className="text-blue-600">角色:{p.role_name}</span>}
-                            {p.department_name && <span className="text-purple-600">部门:{p.department_name}</span>}
-                            {p.user_name && <span className="text-green-600">用户:{p.user_name}</span>}
-                          </span>
-                          <button onClick={() => handleDeletePermission(p.id)}
-                            className="text-red-400 hover:text-red-600"><X size={12} /></button>
-                        </div>
-                      ))}
-                      {permissions.length === 0 && (
-                        <p className="text-xs text-gray-400 text-center py-2">暂无权限配置，知识库对全员开放</p>
-                      )}
-                    </div>
-                  </div>
+              <p className="text-xs text-gray-500 mb-3">
+                默认所有用户可查询。配置覆盖后可禁止或显式允许特定用户。
+              </p>
 
-                  {/* Add permission */}
-                  <div className="mb-5 border-t pt-4">
-                    <p className="text-xs text-gray-500 mb-2">添加权限</p>
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      <select value={newPermType} onChange={(e) => setNewPermType(e.target.value)}
-                        className="rounded border px-2 py-1 text-xs">
-                        <option value="role">按角色</option>
-                        <option value="department">按部门</option>
-                        <option value="user">按用户</option>
-                      </select>
-                      {newPermType === "role" && (
-                        <select value={newPermRoleId} onChange={(e) => setNewPermRoleId(e.target.value)}
-                          className="flex-1 rounded border px-2 py-1 text-xs min-w-[120px]">
-                          <option value="">选择角色...</option>
-                          {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                        </select>
+              <div className="max-h-48 space-y-1 overflow-y-auto mb-3">
+                {overrides.map(o => (
+                  <div key={o.id} className="flex items-center justify-between rounded bg-gray-50 px-3 py-1.5 text-xs">
+                    <span>
+                      {o.override_type === "deny" ? (
+                        <ShieldOff size={12} className="inline mr-1 text-red-500" />
+                      ) : (
+                        <Shield size={12} className="inline mr-1 text-green-500" />
                       )}
-                      {newPermType === "department" && (
-                        <select value={newPermDeptId} onChange={(e) => setNewPermDeptId(e.target.value)}
-                          className="flex-1 rounded border px-2 py-1 text-xs min-w-[120px]">
-                          <option value="">选择部门...</option>
-                          {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                        </select>
-                      )}
-                      {newPermType === "user" && (
-                        <select value={newPermUserId} onChange={(e) => setNewPermUserId(e.target.value)}
-                          className="flex-1 rounded border px-2 py-1 text-xs min-w-[120px]">
-                          <option value="">选择用户...</option>
-                          {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
-                        </select>
-                      )}
-                      <select value={newPermAction} onChange={(e) => setNewPermAction(e.target.value)}
-                        className="rounded border px-2 py-1 text-xs">
-                        {PERM_TYPES.map(t => <option key={t} value={t}>{PERM_LABELS[t]}</option>)}
-                      </select>
-                      <button onClick={handleAddPermission}
-                        className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700">
-                        添加
-                      </button>
-                    </div>
+                      用户:{getUserName(o.user_id)}
+                      <span className={o.override_type === "deny" ? "text-red-600 ml-1" : "text-green-600 ml-1"}>
+                        {o.override_type === "deny" ? "禁止查询" : "允许查询"}
+                      </span>
+                    </span>
+                    <button onClick={() => handleDeleteOverride(o.id)}
+                      className="text-red-400 hover:text-red-600"><X size={12} /></button>
                   </div>
+                ))}
+                {overrides.length === 0 && (
+                  <p className="text-xs text-gray-400 text-center py-2">暂无覆盖配置</p>
+                )}
+              </div>
 
-                  {/* User overrides */}
-                  <div className="border-t pt-4">
-                    <p className="text-xs text-gray-500 mb-2">用户级覆盖（允许/拒绝，优先级最高）</p>
-                    <div className="max-h-32 space-y-1 overflow-y-auto mb-2">
-                      {overrides.map(o => (
-                        <div key={o.id} className="flex items-center justify-between rounded bg-gray-50 px-3 py-1.5 text-xs">
-                          <span>
-                            {o.override_type === "deny" ? (
-                              <ShieldOff size={12} className="inline mr-1 text-red-500" />
-                            ) : (
-                              <Shield size={12} className="inline mr-1 text-green-500" />
-                            )}
-                            用户:{getUserName(o.user_id)}
-                            <span className={o.override_type === "deny" ? "text-red-600 ml-1" : "text-green-600 ml-1"}>
-                              {o.override_type === "deny" ? "拒绝" : "允许"}
-                            </span>
-                          </span>
-                          <button onClick={() => handleDeleteOverride(o.id)}
-                            className="text-red-400 hover:text-red-600"><X size={12} /></button>
-                        </div>
-                      ))}
-                      {overrides.length === 0 && (
-                        <p className="text-xs text-gray-400 text-center py-1">无用户覆盖</p>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <select value={newOverrideUserId} onChange={(e) => setNewOverrideUserId(e.target.value)}
-                        className="flex-1 rounded border px-2 py-1 text-xs">
-                        <option value="">选择用户...</option>
-                        {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
-                      </select>
-                      <select value={newOverrideType} onChange={(e) => setNewOverrideType(e.target.value)}
-                        className="rounded border px-2 py-1 text-xs">
-                        <option value="allow">允许</option>
-                        <option value="deny">拒绝</option>
-                      </select>
-                      <button onClick={handleAddOverride}
-                        className="rounded bg-gray-600 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700">
-                        添加
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
+              <div className="flex gap-2 border-t pt-3">
+                <select value={newOverrideUserId} onChange={(e) => setNewOverrideUserId(e.target.value)}
+                  className="flex-1 rounded border px-2 py-1 text-xs">
+                  <option value="">选择用户...</option>
+                  {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
+                </select>
+                <select value={newOverrideType} onChange={(e) => setNewOverrideType(e.target.value)}
+                  className="rounded border px-2 py-1 text-xs">
+                  <option value="deny">禁止</option>
+                  <option value="allow">允许</option>
+                </select>
+                <button onClick={handleAddOverride}
+                  className="rounded bg-gray-700 px-3 py-1 text-xs font-medium text-white hover:bg-gray-800">
+                  添加
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -401,7 +262,7 @@ export default function KnowledgeBasesPage() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       {kb.type === "enterprise" && (
-                        <button onClick={() => openPermissions(kb)} className="text-blue-500 hover:text-blue-700" title="权限">
+                        <button onClick={() => openOverrides(kb)} className="text-blue-500 hover:text-blue-700" title="权限">
                           <Shield size={16} />
                         </button>
                       )}

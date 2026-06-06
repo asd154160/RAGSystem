@@ -295,6 +295,7 @@ async def process_embed_task(task: DocumentProcessingTask, db_session):
                 "embedding": emb,
                 "chunk_text": (chunk.contextual_text + "\n\n" + chunk.chunk_text) if chunk.contextual_text else chunk.chunk_text,
                 "section_title": chunk.section_title or "",
+                "is_active": True,
             })
 
         milvus_service.insert_chunks(milvus_data)

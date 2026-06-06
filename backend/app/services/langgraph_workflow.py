@@ -10,7 +10,7 @@ from langgraph.graph import StateGraph, END
 
 from app.services.retrieval_service import (
     hybrid_search, rerank_results, expand_parent_chunks,
-    get_rag_configs, build_context, build_sources,
+    get_rag_configs, build_context, build_sources, validate_retrieval_results,
 )
 from app.services import llm_service
 from app.services import query_rewrite as qr
@@ -125,6 +125,7 @@ def _make_expand_node():
         if not results:
             return {"context": "", "sources": []}
         results = await expand_parent_chunks(results)
+        results = await validate_retrieval_results(results)
         context = build_context(results)
         sources = build_sources(results)
         return {"context": context, "sources": sources, "reranked_results": results}
@@ -141,37 +142,15 @@ def _make_reject_node():
     return reject_node
 
 
-def _make_generate_node():
-    """保留 generate 节点供非流式调用使用"""
-    async def generate_node(state: RAGState) -> dict:
-        if not state.get("context"):
-            messages = [
-                {"role": "system", "content": FALLBACK_SYSTEM_PROMPT},
-                {"role": "user", "content": f"用户问题：{state['question']}"},
-            ]
-            try:
-                answer = await llm_service.generate(messages)
-            except Exception as e:
-                logger.error(f"LLM generation failed: {e}")
-                answer = f"答案生成失败：{e}"
-            return {"answer": answer, "sources": [], "low_confidence": True}
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"参考资料：\n{state['context']}\n\n用户问题：{state['question']}"},
-        ]
-        try:
-            answer = await llm_service.generate(messages)
-        except Exception as e:
-            logger.error(f"LLM generation failed: {e}")
-            answer = f"答案生成失败：{e}"
-        if state["low_confidence"]:
-            answer = "以下内容基于低置信度检索结果，仅供参考。\n\n" + answer
-        return {"answer": answer}
-    return generate_node
+def get_rag_graph():
+    global _rag_graph
+    if _rag_graph is None:
+        _rag_graph = build_rag_graph()
+    return _rag_graph
 
 
-def build_rag_graph(include_generate: bool = True) -> StateGraph:
-    """构建 RAG 状态图。include_generate=False 时不含生成节点，用于流式场景"""
+def build_rag_graph() -> StateGraph:
+    """构建 RAG 状态图（流式场景用，不含 LLM 生成节点）"""
     graph = StateGraph(RAGState)
 
     graph.add_node("rewrite", _make_rewrite_node())
@@ -180,8 +159,6 @@ def build_rag_graph(include_generate: bool = True) -> StateGraph:
     graph.add_node("check_confidence", _make_confidence_node())
     graph.add_node("expand", _make_expand_node())
     graph.add_node("reject", _make_reject_node())
-    if include_generate:
-        graph.add_node("generate", _make_generate_node())
 
     graph.set_entry_point("rewrite")
     graph.add_edge("rewrite", "retrieve")
@@ -193,33 +170,13 @@ def build_rag_graph(include_generate: bool = True) -> StateGraph:
         "expand": "expand",
     })
 
-    if include_generate:
-        graph.add_edge("expand", "generate")
-        graph.add_edge("generate", END)
-    else:
-        graph.add_edge("expand", END)
+    graph.add_edge("expand", END)
     graph.add_edge("reject", END)
 
     return graph.compile()
 
 
-# Singleton compiled graphs
 _rag_graph = None
-_rag_graph_no_generate = None
-
-
-def get_rag_graph():
-    global _rag_graph
-    if _rag_graph is None:
-        _rag_graph = build_rag_graph(include_generate=True)
-    return _rag_graph
-
-
-def get_rag_graph_no_generate():
-    global _rag_graph_no_generate
-    if _rag_graph_no_generate is None:
-        _rag_graph_no_generate = build_rag_graph(include_generate=False)
-    return _rag_graph_no_generate
 
 
 async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
@@ -227,7 +184,7 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
                          rerank_top_n: int = 6, score_threshold: float = 0.45,
                          user_id: str = "", history: list[dict] | None = None) -> AsyncGenerator[dict, None]:
     """流式 RAG 工作流：graph 处理检索 → LLM 逐 token 流式生成"""
-    graph = get_rag_graph_no_generate()
+    graph = get_rag_graph()
 
     initial_state: RAGState = {
         "question": question,

@@ -34,7 +34,8 @@ async def upload_document(
 
     # Validate KB exists
     kb_result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == knowledge_base_id))
-    if not kb_result.scalar_one_or_none():
+    kb = kb_result.scalar_one_or_none()
+    if not kb:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="知识库不存在")
 
     # Read file with size limit
@@ -115,6 +116,7 @@ async def replace_document(
     doc = result.scalar_one_or_none()
     if not doc or not doc.versions:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
+
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
@@ -366,6 +368,7 @@ async def review_document(
     if not doc or not doc.versions:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
 
+
     version = doc.versions[0]
     if version.status != DocStatus.pending_review:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"当前状态 {version.status.value} 不能审核")
@@ -405,6 +408,7 @@ async def publish_document(
     doc = result.scalar_one_or_none()
     if not doc or not doc.versions:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
+
 
     version = doc.versions[0]
     if version.status != DocStatus.approved:
@@ -466,6 +470,12 @@ async def offline_document(
 
     doc.status = DocStatus.offline
     await db.commit()
+
+    try:
+        milvus_service.delete_by_document_id(doc_id)
+    except Exception:
+        pass
+
     return {"message": "文档已下架"}
 
 
@@ -481,6 +491,7 @@ async def retry_document(
     doc = result.scalar_one_or_none()
     if not doc or not doc.versions:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
+
 
     version = doc.versions[0]
     if version.status not in (DocStatus.failed, DocStatus.rejected):
