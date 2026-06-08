@@ -13,42 +13,46 @@ from app.services.retrieval_service import (
     get_rag_configs, build_context, build_sources, validate_retrieval_results,
 )
 from app.services import llm_service
-from app.services import query_rewrite as qr
 from app.services.metrics_service import increment_counter, record_timing
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """你是一个企业知识库问答助手。请根据提供的文档片段回答用户问题。
+SYSTEM_PROMPT = """你是跨境电商公司的内部知识库助手，专注于亚马逊精品运营领域。
 
-回答规范：
-1. 先给出明确结论
-2. 列出依据和详细分析
-3. 引用来源时使用 [编号] 标注
-4. 如有风险或注意事项，也需说明
+## 核心原则
+- **忠于原文**：用文档中的原话、原分类、原标题，不要自行换词、合并或重命名
+- **精准引用**：有参考资料时每句结论后标注来源编号 [N]
+- **简练直接**：先说结论，再列依据，去掉客套话和重复
+- **诚实为本**：参考资料未覆盖的内容，标注"知识库中未检索到相关内容，以下基于自身知识，仅供参考"
 
-如果文档片段不足以回答问题，请明确说明无法回答，不要编造信息。"""
+## 回答格式
+1. **直接结论**：一句话回答用户问题
+2. **分点说明**：每条从文档提取的具体信息，标注 `[N]`；自身知识补充部分单独说明
+3. **汇总**（列表类问题）：用表格或列表完整列出所有相关条目，包含阈值/优秀值/警戒线等量化数据
 
-FALLBACK_SYSTEM_PROMPT = """你是一个企业知识库问答助手。当前知识库中未检索到相关内容，请基于你的自身知识回答用户问题。
+## 领域术语
+- Listing = 产品详情页，BSR = Best Sellers Rank 畅销榜排名
+- ACOS = 广告投入产出比，CTR = 点击率，CVR = 转化率，CPC = 单次点击成本
+- FBA = 亚马逊物流，A-to-Z = 亚马逊交易保障索赔
+- ROI = 投资回报率，ACoS = Advertising Cost of Sales
 
-回答规范：
-1. 先给出明确结论
-2. 列出依据和详细分析
-3. 如有风险或注意事项，也需说明
+## 禁止事项
+- 禁止自行归纳分类（如把文档中的"9.1 核心数据分析指标"改叫"销售运营指标"）
+- 禁止混入文档没有的数据、日期、人名
+- 禁止对文档已有内容说"文档未提及"
 
-注意：你需要在回答开头注明"知识库中未检索到相关内容，以下回答基于大模型自身知识，仅供参考。"""
+现在回答用户问题。"""
 
 
 class RAGState(TypedDict):
     question: str
     user_id: str
     kb_ids: list[str]
-    enable_rewrite: bool
     enable_rerank: bool
     top_k: int
     rerank_top_n: int
     score_threshold: float
-    # Intermediate state
-    rewritten_queries: list[str]
+    rrf_k: int
     retrieval_results: list[dict]
     reranked_results: list[dict]
     context: str
@@ -58,32 +62,16 @@ class RAGState(TypedDict):
     error: str | None
 
 
-def _make_rewrite_node():
-    async def rewrite_node(state: RAGState) -> dict:
-        if not state["enable_rewrite"]:
-            return {"rewritten_queries": [state["question"]]}
-        try:
-            queries = await qr.rewrite_query(state["question"], llm_service.generate)
-            return {"rewritten_queries": queries}
-        except Exception as e:
-            logger.warning(f"Rewrite failed: {e}")
-            return {"rewritten_queries": [state["question"]]}
-    return rewrite_node
-
-
 def _make_retrieve_node():
     async def retrieve_node(state: RAGState) -> dict:
-        all_results = []
-        for q in state["rewritten_queries"]:
-            results = await hybrid_search(
-                q, top_k=state["top_k"] * 2,
-                knowledge_base_ids=state["kb_ids"],
-            )
-            all_results.extend(results)
-
+        results = await hybrid_search(
+            state["question"], top_k=state["top_k"] * 2,
+            knowledge_base_ids=state["kb_ids"],
+            rrf_k=state.get("rrf_k", 60),
+        )
         # Deduplicate by chunk_id, keep best score
         seen = {}
-        for r in all_results:
+        for r in results:
             cid = r.get("chunk_id")
             if cid not in seen or r.get("score", 0) > seen[cid].get("score", 0):
                 seen[cid] = r
@@ -111,7 +99,9 @@ def _make_confidence_node():
         if not results:
             return {"low_confidence": True}
         max_score = max(r.get("score", 0) for r in results)
-        return {"low_confidence": max_score < state["score_threshold"]}
+        # rerank 分数范围远低于 RRF 分数，启用 rerank 时用低阈值
+        threshold = 0.005 if state.get("enable_rerank") else state["score_threshold"]
+        return {"low_confidence": max_score < threshold}
     return confidence_node
 
 
@@ -153,15 +143,13 @@ def build_rag_graph() -> StateGraph:
     """构建 RAG 状态图（流式场景用，不含 LLM 生成节点）"""
     graph = StateGraph(RAGState)
 
-    graph.add_node("rewrite", _make_rewrite_node())
     graph.add_node("retrieve", _make_retrieve_node())
     graph.add_node("rerank", _make_rerank_node())
     graph.add_node("check_confidence", _make_confidence_node())
     graph.add_node("expand", _make_expand_node())
     graph.add_node("reject", _make_reject_node())
 
-    graph.set_entry_point("rewrite")
-    graph.add_edge("rewrite", "retrieve")
+    graph.set_entry_point("retrieve")
     graph.add_edge("retrieve", "rerank")
     graph.add_edge("rerank", "check_confidence")
 
@@ -179,23 +167,23 @@ def build_rag_graph() -> StateGraph:
 _rag_graph = None
 
 
-async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
-                         enable_rewrite: bool = True, enable_rerank: bool = True,
-                         rerank_top_n: int = 6, score_threshold: float = 0.45,
+async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 7,
+                         enable_rerank: bool = True,
+                         rerank_top_n: int = 8, score_threshold: float = 0.1,
+                         rrf_k: int = 60,
                          user_id: str = "", history: list[dict] | None = None) -> AsyncGenerator[dict, None]:
-    """流式 RAG 工作流：graph 处理检索 → LLM 逐 token 流式生成"""
+    """流式 RAG 工作流：graph 处理检索（单次执行）→ LLM 逐 token 流式生成"""
     graph = get_rag_graph()
 
     initial_state: RAGState = {
         "question": question,
         "user_id": user_id,
         "kb_ids": kb_ids,
-        "enable_rewrite": enable_rewrite,
         "enable_rerank": enable_rerank,
         "top_k": top_k,
         "rerank_top_n": rerank_top_n,
         "score_threshold": score_threshold,
-        "rewritten_queries": [],
+        "rrf_k": rrf_k,
         "retrieval_results": [],
         "reranked_results": [],
         "context": "",
@@ -205,8 +193,7 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
         "error": None,
     }
 
-    node_names = {
-        "rewrite": "正在改写查询...",
+    node_msg = {
         "retrieve": "正在检索知识库...",
         "rerank": "正在重排序结果...",
         "check_confidence": "正在评估置信度...",
@@ -218,45 +205,32 @@ async def run_rag_stream(question: str, kb_ids: list[str], top_k: int = 10,
         t_start = __import__("time").time()
         increment_counter("rag_query_total")
 
-        node_start = {}
-        async for event in graph.astream_events(initial_state, version="v2"):
-            kind = event.get("event", "")
-            name = event.get("name", "")
+        # 单次执行 graph，yield 节点状态 + 累积最终 state
+        final_state = dict(initial_state)
+        async for chunk in graph.astream(initial_state, stream_mode="updates"):
+            for node_name, node_output in chunk.items():
+                if node_name in node_msg:
+                    yield {"type": "status", "node": node_name, "message": node_msg[node_name]}
+                final_state.update(node_output)
 
-            if kind == "on_chain_start" and name in node_names:
-                node_start[name] = __import__("time").time()
-                yield {"type": "status", "node": name, "message": node_names[name]}
-            elif kind == "on_chain_end" and name in node_start:
-                elapsed = (__import__("time").time() - node_start[name]) * 1000
-                record_timing(f"rag_{name}_ms", elapsed)
-
-        # After graph completes, get final state
-        final_state = await graph.ainvoke(initial_state)
         sources = final_state.get("sources", [])
         low_confidence = final_state.get("low_confidence", False)
         context = final_state.get("context", "")
 
-        # Build conversation history (limited to last 10 messages to keep context manageable)
         history_messages = (history or [])[-10:]
 
-        # If low confidence or no context, fall back to LLM's own knowledge
         if low_confidence or not context:
             increment_counter("rag_query_low_confidence")
-            messages = [{"role": "system", "content": FALLBACK_SYSTEM_PROMPT}]
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             messages.extend(history_messages)
-            messages.append({"role": "user", "content": f"用户问题：{question}"})
-            prefix = "知识库中未检索到相关内容，以下回答基于大模型自身知识，仅供参考。\n\n"
+            messages.append({"role": "user", "content": question})
             async for chunk in llm_service.generate_stream(messages):
-                if prefix:
-                    yield {"type": "answer", "content": prefix}
-                    prefix = ""
                 yield {"type": "answer", "content": chunk}
             yield {"type": "sources", "content": sources}
             yield {"type": "done", "low_confidence": True}
             record_timing("rag_total_ms", (__import__("time").time() - t_start) * 1000)
             return
 
-        # Stream LLM generation with KB context (high confidence)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(history_messages)
         messages.append({"role": "user", "content": f"参考资料：\n{context}\n\n用户问题：{question}"})

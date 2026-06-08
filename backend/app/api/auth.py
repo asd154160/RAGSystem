@@ -14,6 +14,7 @@ from app.core.security import (
     decode_token,
     get_current_user,
     security_scheme,
+    DEFAULT_ROLE_NAME,
 )
 from app.core.rate_limit import check_login_rate
 from app.core.redis_cache import blacklist_add
@@ -74,7 +75,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         username=data.username, email=data.email,
         hashed_password=hash_password(data.password),
     )
-    default_role = await db.execute(select(Role).where(Role.name == "User"))
+    default_role = await db.execute(select(Role).where(Role.name == DEFAULT_ROLE_NAME))
     role = default_role.scalar_one_or_none()
     if role:
         user.roles = [role]
@@ -131,4 +132,5 @@ async def me(user: User = Depends(get_current_user)):
         "is_active": user.is_active,
         "personal_rag_enabled": user.personal_rag_enabled,
         "roles": [{"id": r.id, "name": r.name} for r in user.roles],
+        "permissions": list({p.code for r in user.roles for p in r.permissions}),
     }

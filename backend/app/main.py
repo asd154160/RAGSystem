@@ -24,7 +24,6 @@ from app.api.personal_rag import router as personal_rag_router
 from app.api.sessions import router as sessions_router
 from app.api.model_configs import router as model_configs_router
 from app.api.audit_logs import router as audit_logs_router
-from app.api.knowledge_gaps import router as knowledge_gaps_router
 from app.api.evaluations import router as evaluations_router
 from app.api.monitor import router as monitor_router
 
@@ -38,7 +37,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.cors_origins.split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,7 +56,6 @@ app.include_router(personal_rag_router)
 app.include_router(sessions_router)
 app.include_router(model_configs_router)
 app.include_router(audit_logs_router)
-app.include_router(knowledge_gaps_router)
 app.include_router(evaluations_router)
 app.include_router(monitor_router)
 

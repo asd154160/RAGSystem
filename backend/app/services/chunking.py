@@ -81,13 +81,14 @@ def _sliding_window_split(text: str, chunk_size: int, overlap: int) -> list[str]
 
 
 def _make_parent_chunks(child_chunks: list[Chunk], parent_size: int = 1600, parent_overlap: int = 250) -> list[Chunk]:
-    """从 child chunks 合并生成 parent chunks"""
+    """从 child chunks 合并生成 parent chunks，section 变更时强制分段"""
     parents = []
     buf = []
     buf_tokens = 0
+    last_section: str | None = None
 
     def flush_parent():
-        nonlocal buf, buf_tokens
+        nonlocal buf, buf_tokens, last_section
         if not buf:
             return
         text = "\n\n".join(buf)
@@ -103,21 +104,24 @@ def _make_parent_chunks(child_chunks: list[Chunk], parent_size: int = 1600, pare
             c.parent_chunk_id = p.chunk_id
         buf.clear()
         buf_children.clear()
-        nonlocal buf_tokens
         buf_tokens = 0
+        last_section = None
 
     buf_children = []
     for c in child_chunks:
         ct = _estimate_tokens(c.chunk_text)
-        if buf_tokens + ct > parent_size and buf:
+        # section 变更或容量超限时 flush
+        if last_section is not None and c.section_title != last_section:
+            flush_parent()
+        elif buf_tokens + ct > parent_size and buf:
             flush_parent()
         buf.append(c.chunk_text)
         buf_children.append(c)
         buf_tokens += ct
+        last_section = c.section_title
 
     flush_parent()
 
-    # Index parents
     for i, p in enumerate(parents):
         p.chunk_index = i
 

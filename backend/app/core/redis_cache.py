@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 _async_client: aioredis.Redis | None = None
 _sync_client: sync_redis.Redis | None = None
 
-RETRIEVAL_TTL = 300       # 检索结果缓存 5 分钟
-EMBEDDING_TTL = 86400 * 7  # Embedding 缓存 7 天
+RETRIEVAL_TTL = settings.retrieval_cache_ttl
+EMBEDDING_TTL = settings.embedding_cache_ttl
 
 
 async def get_async_redis() -> aioredis.Redis:

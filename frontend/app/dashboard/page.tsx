@@ -111,9 +111,6 @@ function DashboardInner() {
               {hasPermission("view_audit_logs") && (
                 <Link href="/audit-logs" className="rounded-full bg-white border px-4 py-1.5 text-xs text-gray-600 hover:bg-gray-50">审计日志</Link>
               )}
-              {hasPermission("manage_knowledge_base") && (
-                <Link href="/knowledge-gaps" className="rounded-full bg-white border px-4 py-1.5 text-xs text-gray-600 hover:bg-gray-50">知识缺口</Link>
-              )}
             </div>
           </div>
         )}

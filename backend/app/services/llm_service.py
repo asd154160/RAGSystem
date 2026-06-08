@@ -21,7 +21,7 @@ def _get_db_config() -> dict | None:
     global _db_config_cache, _cache_ts
     import time
     now = time.time()
-    if _db_config_cache is not None and now - _cache_ts < 60:
+    if _db_config_cache is not None and now - _cache_ts < settings.llm_config_cache_ttl:
         return _db_config_cache
 
     try:
@@ -54,7 +54,7 @@ def _get_db_config() -> dict | None:
     return None
 
 
-def _get_llm(temperature: float | None = None, max_tokens: int = 2048) -> ChatOpenAI:
+def _get_llm(temperature: float | None = None, max_tokens: int = 1024) -> ChatOpenAI:
     db_cfg = _get_db_config()
 
     if db_cfg and db_cfg.get("api_key"):
@@ -80,6 +80,7 @@ def _get_llm(temperature: float | None = None, max_tokens: int = 2048) -> ChatOp
         "temperature": temp,
         "max_tokens": max_tokens,
         "base_url": api_base or _default_base_url(provider),
+        "request_timeout": 120,
     }
     return ChatOpenAI(**kwargs)
 
@@ -95,7 +96,7 @@ def _default_base_url(provider: str) -> str:
 async def generate(
     messages: list[dict],
     temperature: float | None = None,
-    max_tokens: int = 2048,
+    max_tokens: int = 1024,
 ) -> str:
     llm = _get_llm(temperature=temperature, max_tokens=max_tokens)
     response = await llm.ainvoke([{"role": m["role"], "content": m["content"]} for m in messages])
@@ -105,7 +106,7 @@ async def generate(
 async def generate_stream(
     messages: list[dict],
     temperature: float | None = None,
-    max_tokens: int = 2048,
+    max_tokens: int = 1024,
 ) -> AsyncGenerator[str, None]:
     llm = _get_llm(temperature=temperature, max_tokens=max_tokens)
     async for chunk in llm.astream([{"role": m["role"], "content": m["content"]} for m in messages]):

@@ -40,6 +40,7 @@ class KnowledgeBase(Base):
     )
 
     user_overrides = relationship("UserKBOverride", back_populates="knowledge_base", lazy="selectin", cascade="all, delete-orphan")
+    department_overrides = relationship("DepartmentKBOverride", back_populates="knowledge_base", lazy="selectin", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="knowledge_base", lazy="selectin")
 
 
@@ -58,3 +59,20 @@ class UserKBOverride(Base):
     override_type: Mapped[OverrideType] = mapped_column(SAEnum(OverrideType), default=OverrideType.allow, nullable=False)
 
     knowledge_base = relationship("KnowledgeBase", back_populates="user_overrides")
+
+
+class DepartmentKBOverride(Base):
+    __tablename__ = "department_kb_overrides"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    department_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("departments.id", ondelete="CASCADE"), nullable=False
+    )
+    knowledge_base_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False
+    )
+    override_type: Mapped[OverrideType] = mapped_column(SAEnum(OverrideType), default=OverrideType.allow, nullable=False)
+
+    knowledge_base = relationship("KnowledgeBase", back_populates="department_overrides")

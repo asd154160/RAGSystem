@@ -13,6 +13,8 @@ interface Role {
   permissions: Permission[];
 }
 
+const SYSTEM_ROLES = new Set(["SuperAdmin", "Admin", "Reviewer", "User", "userin"]);
+
 const PERMISSION_LABELS: Record<string, string> = {
   manage_user: "用户管理",
   manage_department: "部门管理",
@@ -173,7 +175,7 @@ export default function PermissionsPage() {
                   >
                     <Save size={14} />
                   </button>
-                  {role.name !== "SuperAdmin" && (
+                  {!SYSTEM_ROLES.has(role.name) && (
                     <button
                       onClick={() => handleDelete(role.id)}
                       className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500"

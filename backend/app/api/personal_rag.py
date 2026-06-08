@@ -87,7 +87,7 @@ async def _get_or_create_personal_kb(db: AsyncSession, current_user: User) -> Kn
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)
-    top_k: int = Field(default=10, ge=1, le=50)
+    top_k: int = Field(default=7, ge=1, le=50)
     session_id: str | None = None
 
 
@@ -201,9 +201,9 @@ async def chat_stream(
 
     kb_configs = await get_rag_configs(kb_ids)
     enable_rerank = any(cfg.enable_rerank for cfg in kb_configs.values()) if kb_configs else True
-    enable_rewrite = any(cfg.enable_query_rewrite for cfg in kb_configs.values()) if kb_configs else False
-    rerank_top_n = max((cfg.rerank_top_n for cfg in kb_configs.values()), default=6)
-    score_threshold = min((cfg.score_threshold for cfg in kb_configs.values()), default=0.45)
+    rerank_top_n = max((cfg.rerank_top_n for cfg in kb_configs.values()), default=8)
+    score_threshold = min((cfg.score_threshold for cfg in kb_configs.values()), default=0.1)
+    rrf_k = next((cfg.rrf_k for cfg in kb_configs.values()), 60)
 
     async def generate():
         if not kb_ids:
@@ -226,8 +226,9 @@ async def chat_stream(
 
         async for event in run_rag_stream(
             question=data.question, kb_ids=kb_ids, top_k=data.top_k,
-            enable_rewrite=enable_rewrite, enable_rerank=enable_rerank,
+            enable_rerank=enable_rerank,
             rerank_top_n=rerank_top_n, score_threshold=score_threshold,
+            rrf_k=rrf_k,
             user_id=current_user.id, history=history,
         ):
             etype = event.get("type", "")
@@ -254,11 +255,6 @@ async def chat_stream(
 
         await audit_service.log(db, "rag_query", current_user.id, current_user.username,
                                 detail=f"answered: {data.question[:100]}")
-        if low_conf:
-            from app.db.models.knowledge_gap import KnowledgeGap
-            db.add(KnowledgeGap(question=data.question, user_id=current_user.id, session_id=session_id))
-            await db.commit()
-
         yield f"event: done\ndata: {json.dumps({'session_id': session_id, 'low_confidence': low_conf})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")

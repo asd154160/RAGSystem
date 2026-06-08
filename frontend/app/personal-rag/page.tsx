@@ -69,7 +69,7 @@ function PersonalRagInner() {
     setUploading(true); setUploadMsg("");
     try {
       const form = new FormData(); form.append("file", file);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/personal-rag/documents/upload`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/personal-rag/documents/upload`, {
         method: "POST",
         headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
         body: form,
@@ -173,7 +173,7 @@ function PersonalRagInner() {
     try {
       for await (const event of streamChat("/api/personal-rag/chat/stream", {
         question,
-        top_k: 5,
+        top_k: 7,
         session_id: sessionId || undefined,
       })) {
         switch (event.type) {

@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export interface SSEEvent {
   type: "status" | "answer" | "sources" | "done" | "error";
@@ -10,6 +10,36 @@ export interface SSEEvent {
   error?: string;
 }
 
+async function _fetchWithAuth(
+  path: string,
+  body: Record<string, unknown>,
+  token: string | null,
+): Promise<Response> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  let res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (res.status === 401 && token) {
+    const { refreshToken } = await import("@/lib/auth");
+    const newToken = await refreshToken();
+    if (newToken) {
+      headers["Authorization"] = `Bearer ${newToken}`;
+      res = await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+    }
+  }
+
+  return res;
+}
+
 export async function* streamChat(
   path: string,
   body: Record<string, unknown>
@@ -18,14 +48,7 @@ export async function* streamChat(
     ? localStorage.getItem("access_token")
     : null;
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
+  const res = await _fetchWithAuth(path, body, token);
 
   if (!res.ok || !res.body) {
     throw new Error(`Stream request failed: ${res.status}`);

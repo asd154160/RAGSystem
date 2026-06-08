@@ -22,12 +22,63 @@
 
 ---
 
+## 当前环境
+
+| 组件 | 版本 | 说明 |
+|------|------|------|
+| OS | Windows 11 Home China 10.0.26200 | 宿主机 |
+| Docker | Docker Desktop + WSL2 | 容器运行时 |
+| CUDA | 12.4 (cu124) | NVIDIA CUDA Toolkit |
+| PyTorch | 2.5.1+cu124 | 从 PyTorch 官方 index 安装 |
+| Python | 3.12 (容器内) | Docker 镜像 python:3.12-slim |
+| NVIDIA 驱动 | 550+ | Linux x86_64，WSL2 内 |
+| sentence-transformers | 3.3.1 | bge-m3 embedding 模型 |
+| FlagEmbedding | 1.3.3 | bge-reranker-v2-m3 精排模型 |
+
+### GPU 兼容性
+
+PyTorch 2.5.1 官方预编译 wheel 对应的 CUDA 版本及显卡支持情况：
+
+| CUDA 版本 | PyTorch wheel | 驱动要求 | 支持显卡 |
+|-----------|--------------|----------|----------|
+| cu124 | `torch==2.5.1+cu124` | ≥ 550 | GTX 16 系、RTX 20/30/40 系 |
+| cu126 | `torch==2.6.0+cu126` | ≥ 555 | GTX 16 系、RTX 20/30/40/50 系 |
+| cu128 | `torch==2.7.0+cu128` | ≥ 570 | GTX 16 系、RTX 20/30/40/50 系 |
+
+> **说明**：CUDA 向下兼容，cu124 支持所有 compute capability ≤ 8.9 的显卡。RTX 50 系（Blackwell, sm_120）需要 CUDA 12.6+，因此必须升级到 cu126 或更高版本。
+
+**各显卡系列对应关系：**
+
+| 显卡系列 | 架构 | Compute Capability | 最低 CUDA | 推荐 PyTorch |
+|----------|------|-------------------|-----------|-------------|
+| GTX 16 系 (1650/1660) | Turing | 7.5 | CUDA 10.0 | `torch==2.5.1+cu124` |
+| RTX 20 系 (2060/2070/2080) | Turing | 7.5 | CUDA 10.0 | `torch==2.5.1+cu124` |
+| RTX 30 系 (3050/3060/3070/3080/3090) | Ampere | 8.0/8.6 | CUDA 11.0 | `torch==2.5.1+cu124` |
+| RTX 40 系 (4060/4070/4080/4090) | Ada Lovelace | 8.9 | CUDA 11.8 | `torch==2.5.1+cu124` |
+| RTX 50 系 (5060/5070/5080/5090) | Blackwell | 12.0 | CUDA 12.6 | `torch==2.6.0+cu126` |
+
+**升级 PyTorch CUDA 版本方法**（如使用 RTX 50 系）：
+
+1. 修改 `backend/Dockerfile` 中的 PyTorch 安装命令：
+   ```dockerfile
+   # 将 cu124 改为 cu126，torch 版本改为 2.6.0
+   RUN pip install --no-cache-dir --timeout 600 --retries 5 \
+       --index-url https://download.pytorch.org/whl/cu126 \
+       torch==2.6.0 && \
+       ...
+   ```
+2. 重新构建镜像：`docker compose build --no-cache backend worker`
+
+**纯 CPU 运行**：删除 `docker-compose.yml` 中 `backend` 和 `worker` 的 `deploy.resources.reservations.devices` 块即可。模型会自动 fallback 到 CPU（注意：bge-reranker 的 `use_fp16=True` 在 CPU 上可能报错，需改为 `False`）。
+
+---
+
 ## 快速开始
 
 ### 环境要求
 
 - Docker Desktop（含 Docker Compose v2）— 需启用 WSL2 GPU 支持
-- NVIDIA GPU（8GB+ VRAM）+ 驱动 550+ + CUDA 12.4+
+- NVIDIA GPU（8GB+ VRAM）+ 驱动 ≥ 550（见上方 GPU 兼容表）
 - Python 3.10+（仅用于模型下载脚本）
 - 16GB+ 内存，30GB+ 磁盘空间
 
@@ -41,7 +92,7 @@ bash scripts/setup.sh
 .\scripts\setup.ps1
 ```
 
-脚本自动完成：`.env` 检查 → 模型下载（`bge-m3` + `bge-reranker-v2-m3`，约 3GB）→ torch wheel 检查 → Docker 构建启动 → 健康检查等待 → 种子数据初始化。
+脚本自动完成：`.env` 检查 → 模型下载（`bge-m3` + `bge-reranker-v2-m3`，约 3GB）→ Docker 构建启动 → 健康检查等待 → 种子数据初始化。
 
 ### 分步部署
 
@@ -61,22 +112,14 @@ LLM_API_KEY=sk-your-api-key
 LLM_API_BASE=https://api.minimax.chat/v1
 LLM_MODEL_NAME=MiniMax-M2.7
 LLM_TEMPERATURE=0.1
+
+# 前端 API 地址（容器内走 next.config.js 代理，留空；本地开发设 http://localhost:8000）
+NEXT_PUBLIC_API_URL=
+# CORS 允许的源（逗号分隔，生产部署加外部域名）
+CORS_ORIGINS=http://localhost:3000
 ```
 
-**2. 准备 PyTorch CUDA wheel**
-
-从 PyTorch 官网下载 CUDA 12.4 wheel 到 `backend/whl/`（约 867MB）：
-
-```bash
-# 创建 whl 目录并下载
-mkdir -p backend/whl
-# 下载地址: https://download.pytorch.org/whl/cu124/torch-2.5.1%2Bcu124-cp312-cp312-linux_x86_64.whl
-# 或用浏览器下载后放入 backend/whl/
-```
-
-> Dockerfile 会优先安装本地 wheel，避免每次构建下载 867MB。
-
-**3. 下载模型文件**
+**2. 下载模型文件**
 
 ```bash
 python scripts/download_models.py
@@ -90,13 +133,13 @@ models/
 └── bge-reranker-v2-m3/       # rerank 模型（~1GB）
 ```
 
-**4. 启动服务**
+**3. 启动服务**
 
 ```bash
 docker compose up -d
 ```
 
-首次启动会拉取基础镜像并构建，后端首次构建约 3-5 分钟（PyTorch CUDA 12.4 版从本地 wheel 安装，无需下载）。共 9 个服务：
+首次启动会拉取基础镜像并构建，后端首次构建约 3-5 分钟（PyTorch CUDA 12.4 版从 PyTorch 官方 index 下载安装）。共 9 个服务：
 
 | 服务 | 用途 | 端口 |
 |------|------|------|
@@ -105,12 +148,14 @@ docker compose up -d
 | milvus | 向量数据库 | 19530 |
 | postgres | 业务数据库 | 5432 |
 | redis | 限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁 | 6379 |
-| backend | FastAPI 后端（GPU 推理） | 8000 |
-| worker | 文档解析 + Embedding 异步任务（GPU 推理） | — |
+| backend | FastAPI 后端（已内置 GPU） | 8000 |
+| worker | 文档解析 + Embedding 异步任务（已内置 GPU） | — |
 | frontend | Next.js 前端 | 3000 |
 | backup-cron | 定时备份（PostgreSQL + MinIO + Milvus） | — |
 
-**5. 初始化种子数据**
+> **纯 CPU 运行**：删除 `docker-compose.yml` 中 `backend` 和 `worker` 的 `deploy.resources.reservations.devices` 块，并将 `backend/app/services/rerank_service.py` 第 24 行的 `use_fp16=True` 改为 `use_fp16=False`。
+
+**4. 初始化种子数据**
 
 ```bash
 docker compose exec backend PYTHONPATH=/app python app/db/seed.py
@@ -139,7 +184,7 @@ docker compose exec backend PYTHONPATH=/app python app/db/seed.py
 ### 常用命令
 
 ```bash
-docker compose up -d                         # 启动全部服务
+docker compose up -d                         # 启动全部服务（已内置 GPU，需 nvidia-container-toolkit）
 docker compose up -d --build backend worker  # 代码变更后重建（含依赖变更时使用）
 docker compose restart backend               # 快速重启后端（volume 挂载，代码即改即生效）
 docker compose restart frontend              # 重启前端（新增页面时需重启）
@@ -160,28 +205,26 @@ RAGSystem/
 │   │   ├── main.py                     # FastAPI 入口 + CORS + 路由注册
 │   │   ├── core/                       # 配置(config)、安全(JWT/RBAC)、限流(rate_limit)
 │   │   ├── db/
-│   │   │   ├── models/                 # 16 个 SQLAlchemy 模型
+│   │   │   ├── models/                 # 15 个 SQLAlchemy 模型
 │   │   │   ├── session.py              # async + sync 数据库引擎
 │   │   │   └── seed.py                 # 种子数据（角色/权限/用户）
-│   │   ├── api/                        # 14 个路由模块
+│   │   ├── api/                        # 13 个路由模块
 │   │   │   ├── auth.py                 # 登录/刷新/退出/当前用户
 │   │   │   ├── users.py                # 用户 CRUD + 密码修改 + 个人RAG开关
 │   │   │   ├── departments.py          # 部门 CRUD + M2M 成员管理
 │   │   │   ├── roles.py                # 角色/权限列表
-│   │   │   ├── knowledge_bases.py      # 知识库 CRUD + KB权限 + 用户覆盖 + RAG配置
+│   │   │   ├── knowledge_bases.py      # 知识库 CRUD + KB权限 + 用户/部门覆盖 + RAG配置
 │   │   │   ├── documents.py            # 文档上传/列表/审核/发布/下架/重试
 │   │   │   ├── enterprise_rag.py       # 企业 RAG 流式问答（SSE）
 │   │   │   ├── personal_rag.py         # 个人 RAG 流式问答（SSE）
 │   │   │   ├── sessions.py             # 会话列表/详情/删除 + 消息反馈
 │   │   │   ├── model_configs.py        # LLM 模型配置 CRUD
 │   │   │   ├── audit_logs.py           # 审计日志查询
-│   │   │   ├── knowledge_gaps.py       # 知识缺口管理
 │   │   │   ├── evaluations.py          # RAG 评测（数据集 + 评测记录）
 │   │   │   └── monitor.py              # 系统监控指标
-│   │   ├── services/                   # 15 个服务模块
+│   │   ├── services/                   # 14 个服务模块
 │   │   │   ├── langgraph_workflow.py   # LangGraph RAG 编排（核心）
 │   │   │   ├── retrieval_service.py    # 混合检索 + RRF + Rerank + Parent扩展
-│   │   │   ├── query_rewrite.py        # Query Rewrite 查询改写/拆分
 │   │   │   ├── contextual_retrieval.py # Contextual Retrieval 上下文描述生成
 │   │   │   ├── embedding_service.py    # bge-m3 向量化
 │   │   │   ├── rerank_service.py       # bge-reranker-v2-m3 精排
@@ -197,13 +240,11 @@ RAGSystem/
 │   │   ├── schemas/                    # Pydantic 请求/响应模型
 │   │   └── workers/                    # 异步任务 Worker
 │   │       └── main.py                 # 文档解析 + Embedding（轮询处理）
-│   ├── whl/                         # PyTorch CUDA 12.4 本地 wheel（构建加速）
-│   │   └── torch-2.5.1+cu124-cp312-cp312-linux_x86_64.whl
 │   ├── requirements.txt
 │   ├── requirements-docker.txt
 │   └── Dockerfile
 ├── frontend/
-│   ├── app/                            # 17 个页面路由
+│   ├── app/                            # 16 个页面路由
 │   │   ├── login/                      # 登录
 │   │   ├── dashboard/                  # 工作台
 │   │   ├── enterprise-rag/             # 企业 RAG 聊天页
@@ -217,7 +258,7 @@ RAGSystem/
 │   │   ├── model-configs/              # 模型配置
 │   │   ├── rag-configs/                # RAG 参数配置
 │   │   ├── audit-logs/                 # 审计日志
-│   │   ├── sessions/                   # 会话记录（含消息反馈+知识缺口）
+│   │   ├── sessions/                   # 会话记录（含消息反馈）
 │   │   ├── evaluations/                # RAG 评测
 │   │   └── monitor/                    # 系统监控
 │   ├── components/
@@ -268,8 +309,8 @@ RAGSystem/
 | GET | `/api/knowledge-bases/accessible` | 需登录 | 当前用户有权查询的 KB（权限过滤后） |
 | POST | `/api/knowledge-bases` | Admin | 创建知识库 |
 | GET/PATCH/DELETE | `/api/knowledge-bases/{id}` | 需登录 / Admin / Admin | KB 详情 / 更新 / 删除 |
-| GET/POST/DELETE | `/api/knowledge-bases/{id}/user-overrides` | 需登录 / Admin / Admin | KB 用户查询覆盖（allow/deny） |
-| GET/POST/DELETE | `/api/knowledge-bases/{id}/user-overrides` | 需登录 / Admin / Admin | 用户覆盖列表 / 添加 / 移除 |
+| GET/POST/DELETE | `/api/knowledge-bases/{id}/user-overrides` | 需登录 / Admin / Admin | 用户查询覆盖：列表 / 添加 / 移除 |
+| GET/POST/DELETE | `/api/knowledge-bases/{id}/department-overrides` | 需登录 / Admin / Admin | 部门查询覆盖：列表 / 添加 / 移除 |
 | GET/PATCH | `/api/knowledge-bases/{id}/rag-config` | 需登录 | RAG 参数配置 |
 | POST | `/api/documents/upload` | upload_document | 上传文档（txt/md/pdf/docx/xlsx/pptx，≤100MB） |
 | GET | `/api/documents` | 需登录 | 文档列表 |
@@ -308,16 +349,13 @@ RAGSystem/
 | DELETE | `/api/personal-rag/documents/{id}` | 删除文档（含 MinIO + Milvus 清理） |
 | POST | `/api/personal-rag/documents/{id}/retry` | 重试失败文档 |
 
-### 模型配置、审计、缺口、评测、监控
+### 模型配置、审计、评测、监控
 
 | 方法 | 路径 | 权限 | 说明 |
 |------|------|------|------|
 | GET/POST | `/api/admin/models` | manage_model_config | LLM 模型配置列表 / 新增 |
 | PATCH/DELETE | `/api/admin/models/{id}` | manage_model_config | 更新 / 删除 |
 | GET | `/api/admin/audit-logs` | view_audit_logs | 审计日志查询（支持 action/user_id 过滤） |
-| GET | `/api/knowledge-gaps` | 需登录 | 知识缺口列表（支持 session_id 过滤） |
-| PATCH | `/api/knowledge-gaps/{id}` | 需登录 | 更新缺口状态/备注 |
-| POST | `/api/knowledge-gaps/{id}/resolve` | 需登录 | 标记已解决 |
 | GET/POST | `/api/admin/evaluations/datasets` | 需登录 | 评测集列表 / 创建 |
 | DELETE | `/api/admin/evaluations/datasets/{id}` | 需登录 | 删除评测集 |
 | GET/POST | `/api/admin/evaluations/runs` | 需登录 | 评测记录列表（含数据集名） / 启动 |
@@ -364,27 +402,25 @@ Parent-Child Chunking（700/1600 tokens，chunk_hash 指纹）
 ```
 用户问题
   ↓
-Query Rewrite（LLM 检测复合问题 → 拆分子问题 OR 改写多角度查询）
-  ↓
 Redis 检索缓存 — 命中(key=md5(query+kb_ids+top_k))直接返回，TTL 5min
   ↓ (未命中)
-多路召回：Milvus 向量检索(COSINE) + PostgreSQL pg_trgm 全文检索(similarity+ILIKE)
+多路召回：Milvus 向量检索(COSINE) + PostgreSQL pg_trgm 全文检索(word_similarity+section_title)
   ↓
 RRF 融合排序（k=60）
   ↓
-bge-reranker-v2-m3 精排（Cross-encoder，保留 top_n=6）
+bge-reranker-v2-m3 精排（Cross-encoder，保留 top_n=8）
   ↓
-置信度检测（max_score < 0.45 → low_confidence）
+置信度检测（max_score < 0.005 → low_confidence，rerank 启用时自适应）
   ↓
 Parent Chunk 回填（child → parent 上下文扩展）
   ↓
-LangGraph 编排（状态图: rewrite → retrieve → rerank → check_confidence → expand → generate）
+LangGraph 编排（状态图: retrieve → rerank → check_confidence → expand → generate，单次 astream 执行）
   ↓
-LLM 流式生成（SSE token-by-token）
+LLM 流式生成（SSE token-by-token，max_tokens=1024，超时120s）
   ↓
 返回：答案 + 来源引用 [编号](文档名/章节/相似度)
   ↓
-保存会话 + 审计日志 +（低置信度时）知识缺口记录
+保存会话 + 审计日志
 ```
 
 **SSE 事件类型：** `status`（节点进度） → `answer`（LLM token） → `sources`（来源列表） → `done`（完成 + session_id + low_confidence 标志）
@@ -398,7 +434,6 @@ RAG 检索链路由 `langgraph_workflow.py` 中的 **StateGraph** 编排，将�
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `question` | `str` | 用户原始问题 |
-| `rewritten_queries` | `list[str]` | Query Rewrite 后的多角度查询 |
 | `retrieval_results` | `list[dict]` | 混合检索 + RRF 融合后的结果（去重后 top_k×2） |
 | `reranked_results` | `list[dict]` | Rerank 精排后的结果（top_n 条） |
 | `context` | `str` | 拼接后的参考资料文本（Parent Chunk 扩展后） |
@@ -411,10 +446,6 @@ RAG 检索链路由 `langgraph_workflow.py` 中的 **StateGraph** 编排，将�
 
 ```
                 ┌──────────┐
-                │  rewrite  │  Query Rewrite 改写/拆分
-                └─────┬────┘
-                      │
-                ┌─────▼────┐
                 │ retrieve  │  混合检索 + RRF 融合 + 去重
                 │           │  Milvus 过滤: knowledge_base_id + is_active=True
                 └─────┬────┘
@@ -424,7 +455,7 @@ RAG 检索链路由 `langgraph_workflow.py` 中的 **StateGraph** 编排，将�
                 └─────┬────┘
                       │
               ┌───────▼───────┐
-              │ check_confidence│  评估 max_score vs threshold
+              │ check_confidence│  评估 max_score vs threshold（rerank启用时0.005）
               └───────┬───────┘
                       │ (always)
               ┌───────▼───────┐
@@ -436,8 +467,7 @@ RAG 检索链路由 `langgraph_workflow.py` 中的 **StateGraph** 编排，将�
 
 | 节点 | 文件/函数 | 职责 |
 |------|-----------|------|
-| `rewrite` | `query_rewrite.py` | LLM 检测复合问题 → 拆分子问题 / 多角度改写，返回 `["q1", "q2", ...]` |
-| `retrieve` | `retrieval_service.hybrid_search()` | 对每个改写查询执行 Milvus 向量 + pg_trgm 关键词双路召回 → RRF 融合 → chunk_id 去重。Milvus 端过滤 `knowledge_base_id in [...] and is_active == True` |
+| `retrieve` | `retrieval_service.hybrid_search()` | Milvus 向量 + pg_trgm 关键词（word_similarity + section_title）双路召回 → RRF 融合 → chunk_id 去重。Milvus 端过滤 `knowledge_base_id in [...] and is_active == True` |
 | `rerank` | `retrieval_service.rerank_results()` | bge-reranker-v2-m3 Cross-encoder 对检索结果精排，保留前 `rerank_top_n` 条 |
 | `check_confidence` | `langgraph_workflow._make_confidence_node()` | 计算 `max_score`：若 `max_score < score_threshold` 则 `low_confidence=True` |
 | `expand` | `retrieval_service.expand_parent_chunks()` + `validate_retrieval_results()` | Parent Chunk 回填 → DB 二次校验（回查 is_active + document.status）→ 拼接 context → 构建 sources |
@@ -472,7 +502,7 @@ graph 执行完毕 → 获取 context / low_confidence / sources
                     • sources 包含相关文档引用
 ```
 
-所有 RAG 问答均通过 `run_rag_stream()` 流式 SSE 输出。Graph 执行检索链路（rewrite → retrieve → rerank → check_confidence → expand），LLM 生成在 graph 外部由 `llm_service.generate_stream()` 逐 token 产出。
+所有 RAG 问答均通过 `run_rag_stream()` 流式 SSE 输出。Graph 通过 `astream(stream_mode=\"updates\")` 单次执行检索链路（retrieve → rerank → check_confidence → expand），LLM 生成在 graph 外部由 `llm_service.generate_stream()` 逐 token 产出。
 
 ---
 
@@ -490,22 +520,23 @@ graph 执行完毕 → 获取 context / low_confidence / sources
 | User | query_knowledge_base |
 | userin | query_knowledge_base（个人 RAG 专用） |
 
-**KB 级权限** — 控制知识库查询访问：
+**KB 级权限** — 控制知识库查询访问，两级覆盖机制：
 
 ```
 UserKBOverride(user_id, knowledge_base_id, allow|deny)
+DepartmentKBOverride(department_id, knowledge_base_id, allow|deny)
 ```
 
-解析逻辑（`kb_access.py`）：
-1. Admin/SuperAdmin → 始终可访问全部 KB
+解析逻辑（`kb_access.py`），优先级从高到低：
+1. 拥有 `manage_knowledge_base` 权限 → 可访问全部 KB
 2. 默认：所有登录用户可查询所有企业 KB
-3. UserKBOverride.deny → 禁止该用户查询指定 KB
-4. UserKBOverride.allow → 显式允许（用于从 deny 中恢复）
+3. 部门级覆盖：用户的部门集合（主部门 + M2M）中任一部门 allow 即放行，全部 deny 则拒绝
+4. 用户级覆盖（最高优先级）：UserKBOverride.deny 强制禁止，UserKBOverride.allow 覆盖部门拒绝
 
 **部门-用户连接：**
 - `User.department_id` (FK，直属部门)
 - `department_members` (M2M，多部门成员关系)
-- KB 访问解析时同时检查两路
+- KB 访问解析时同时检查两路，收集用户所属全部部门
 
 ---
 
@@ -518,12 +549,11 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)
 | `chunk_size` | 700 | Child chunk 大小 (tokens) |
 | `chunk_overlap` | 100 | Child chunk 重叠 |
 | `parent_chunk_size` | 1600 | Parent chunk 大小 |
-| `top_k_vector` | 5 | 向量检索返回数 |
-| `top_k_bm25` | 5 | 关键词检索返回数 |
+| `top_k_vector` | 7 | 向量检索返回数 |
+| `top_k_bm25` | 7 | 关键词检索返回数 |
 | `rrf_k` | 60 | RRF 融合参数 |
-| `rerank_top_n` | 6 | Rerank 后保留数 |
-| `score_threshold` | 0.45 | 低置信度阈值 |
-| `enable_query_rewrite` | true | Query Rewrite 开关 |
+| `rerank_top_n` | 8 | Rerank 后保留数 |
+| `score_threshold` | 0.1 | 低置信度阈值（rerank 启用时自适应为 0.005） |
 | `enable_rerank` | true | Rerank 开关 |
 | `enable_parent_child_chunking` | true | Parent-Child Chunking 开关 |
 
@@ -538,21 +568,19 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)
 | 文档 | 增量索引 | chunk_hash 指纹匹配，仅对有变化的块做 embedding |
 | 文档 | Contextual Retrieval | LLM 生成 100-200 字 chunk 上下文描述，拼入 embedding 和 Milvus chunk_text，提升检索和 Rerank 精度 |
 | 文档 | 生命周期管理 | 上传→解析→审核→发布→入库，含版本管理 |
-| 检索 | Query Rewrite | LLM 检测复合问题并拆分 / 改写多角度查询 |
-| 检索 | 混合检索 | Milvus 向量 + pg_trgm 关键词 → RRF 融合 |
+| 检索 | 混合检索 | Milvus 向量 + pg_trgm 关键词（word_similarity + section_title）→ RRF 融合 |
 | 检索 | Rerank 精排 | bge-reranker-v2-m3 Cross-encoder |
-| 检索 | 置信度检测 | score < 0.45 → 低置信度 + 知识缺口记录 |
+| 检索 | 置信度检测 | score < 0.005（rerank）/ 0.1（无rerank）→ 低置信度标记 |
 | 检索 | Parent Chunk 回填 | 子块检索结果自动加载父块上下文 |
 | 问答 | 流式 SSE | token-by-token 实时输出，5 种事件类型 |
 | 问答 | 多轮对话 | 自动加载最近 10 条会话历史，支持连续追问 |
 | 问答 | Think Block | `<think>` 思考过程自动折叠，可展开查看 |
 | 问答 | 来源引用 | `[编号] 文档名` 带 hover 详情卡片 |
 | 权限 | 系统 RBAC | 5 角色 × 9 权限，前后端双重检查 |
-| 权限 | KB 级权限 | 按用户 allow/deny 控制知识库查询访问 |
+| 权限 | KB 级权限 | 按用户/部门 allow/deny 控制知识库查询访问，用户级优先于部门级 |
 | 权限 | 部门连接 | User FK + M2M 双路部门归属 |
 | 管理 | 会话管理 | 创建/列表/删除/反馈(like/dislike) |
 | 管理 | 审计日志 | 全量操作记录，按 action/user_id 过滤 |
-| 管理 | 知识缺口 | 低置信度自动记录，在会话记录页中可查看和标记已解决 |
 | 管理 | 模型配置 | DB 存储 LLM 配置，支持多 provider，API Key 加密 |
 | 运维 | 监控指标 | 今日调用/平均延迟/p95/低置信度/错误数，5s 自动刷新 |
 | 运维 | RAG 评测 | 数据集 + 评测运行，逐题 Embedding 语义评分 + 展开查看期望vs实际回答，自动轮询 |
@@ -572,11 +600,22 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)
 - 模型路径可由环境变量覆盖：`BGE_M3_PATH`、`RERANKER_PATH`
 
 ### Docker
+
 - `backend` 和 `frontend` 挂载源码目录，代码改动即改即生效（新增前端页面需重启 `docker compose restart frontend`）
 - `.env` 变更后需重建容器：`docker compose up -d --force-recreate backend worker`
-- **PyTorch CUDA 12.4 版**从本地 `backend/whl/torch-2.5.1+cu124-*.whl` 安装，构建无需下载。若 whl 缺失：从 https://download.pytorch.org/whl/cu124 下载对应 wheel 放入 `backend/whl/`
+- **PyTorch** 从官方 index 下载对应 CUDA 版本的 wheel（Dockerfile 中配置，40 系及以下用 cu124，50 系需改为 cu126）
 - Docker Desktop 需在 Settings → Resources → WSL Integration 中启用 GPU 支持
 - Worker 内存建议 4GB+（bge-m3 模型加载需约 2GB VRAM）
+
+### GPU 故障排查
+
+| 问题 | 可能原因 | 解决方法 |
+|------|---------|----------|
+| `torch.cuda.is_available()` 返回 False | 容器未分配 GPU | 确认 `docker-compose.yml` 中 `deploy.resources.reservations.devices` 配置存在 |
+| CUDA error: no kernel image for execution | 显卡架构不被当前 CUDA 版本支持 | RTX 50 系需升级到 cu126+，参考上方 GPU 兼容表 |
+| `nvidia-smi` 无输出 | 驱动未安装或 WSL2 未配置 | `nvidia-smi` 在宿主机确认驱动正常；检查 Docker Desktop WSL2 GPU 集成 |
+| bge-reranker CPU 运行报错 | `use_fp16=True` 在 CPU 上不支持 | 改为 `use_fp16=False`（`rerank_service.py` 第 24 行） |
+| 模型加载 OOM | 显存不足 | 建议 8GB+ VRAM；或改用 CPU 模式 |
 
 ### 常见问题
 
@@ -585,9 +624,10 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)
 | 找不到模型 | 确认 `models/bge-m3/config.json` 存在；运行 `python scripts/download_models.py` |
 | Milvus 连接失败 | `docker compose logs milvus`，确认 etcd/minio 都 healthy |
 | 向量检索为空 | 确认文档已发布 + Worker 已完成 embedding：`docker compose logs worker` |
-| LLM 不回答 | 检查 `.env` 中 `LLM_API_KEY`；或通过 `/model-configs` 页面配置 DB 模型 |
+| LLM 不回答/慢 | 检查 `.env` 中 `LLM_API_KEY`；或通过 `/model-configs` 页面配置 DB 模型；默认 max_tokens=1024，超时 120s |
 | 前端 401 | Token 过期，刷新页面重新登录 |
 | 端口冲突 | 修改 `docker-compose.yml` 中端口映射，或停用占用端口的本地服务 |
+| 前端请求404 | 容器内 `NEXT_PUBLIC_API_URL` 应为空（走 `next.config.js` 代理）；本地开发设为 `http://localhost:8000` |
 
 ### 数据库
 - 种子数据首次运行会清库重建标记为 `is_system` 的角色/权限；已有数据时自动跳过

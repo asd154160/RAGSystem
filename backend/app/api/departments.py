@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-from app.core.security import get_current_user, require_role
+from app.core.security import get_current_user, require_permission
 from app.db.session import AsyncSession, get_db
 from app.db.models import Department, User
 from app.schemas.department import DepartmentCreate, DepartmentUpdate, DepartmentResponse, MemberAdd, MemberBrief
@@ -63,8 +63,7 @@ async def list_departments(
 async def create_department(
     data: DepartmentCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    _: None = Depends(require_role("SuperAdmin", "Admin")),
+    current_user: User = Depends(require_permission("manage_department")),
 ):
     existing = await db.execute(select(Department).where(Department.name == data.name))
     if existing.scalar_one_or_none():
@@ -100,8 +99,7 @@ async def update_department(
     dept_id: str,
     data: DepartmentUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    _: None = Depends(require_role("SuperAdmin", "Admin")),
+    current_user: User = Depends(require_permission("manage_department")),
 ):
     result = await db.execute(
         select(Department).options(
@@ -126,8 +124,7 @@ async def update_department(
 async def delete_department(
     dept_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    _: None = Depends(require_role("SuperAdmin", "Admin")),
+    current_user: User = Depends(require_permission("manage_department")),
 ):
     result = await db.execute(select(Department).where(Department.id == dept_id))
     dept = result.scalar_one_or_none()

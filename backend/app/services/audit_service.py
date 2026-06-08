@@ -25,5 +25,6 @@ async def log(
             detail=detail, ip_address=ip_address,
         )
         db.add(entry)
+        await db.commit()
     except Exception as e:
         logger.warning(f"Audit log write failed: {e}")
