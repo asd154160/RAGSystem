@@ -10,15 +10,15 @@ interface RAGConfig {
   chunk_size: number; chunk_overlap: number; parent_chunk_size: number;
   top_k_vector: number; top_k_bm25: number; rrf_k: number;
   rerank_top_n: number; score_threshold: number;
-  enable_query_rewrite: boolean; enable_rerank: boolean;
+  enable_rerank: boolean;
   enable_parent_child_chunking: boolean;
 }
 
 const defaults: RAGConfig = {
   chunk_size: 700, chunk_overlap: 100, parent_chunk_size: 2000,
-  top_k_vector: 10, top_k_bm25: 10, rrf_k: 60,
-  rerank_top_n: 5, score_threshold: 0.3,
-  enable_query_rewrite: true, enable_rerank: true,
+  top_k_vector: 7, top_k_bm25: 7, rrf_k: 60,
+  rerank_top_n: 8, score_threshold: 0.1,
+  enable_rerank: true,
   enable_parent_child_chunking: true,
 };
 
@@ -80,7 +80,6 @@ export default function RagConfigsPage() {
               <NumField label="阈值" value={config.score_threshold} step={0.05} onChange={v => setConfig({...config, score_threshold: v})} />
             </div>
             <div className="flex flex-wrap gap-4">
-              <BoolField label="Query Rewrite" value={config.enable_query_rewrite} onChange={v => setConfig({...config, enable_query_rewrite: v})} />
               <BoolField label="Rerank" value={config.enable_rerank} onChange={v => setConfig({...config, enable_rerank: v})} />
 
               <BoolField label="Parent-Child Chunking" value={config.enable_parent_child_chunking} onChange={v => setConfig({...config, enable_parent_child_chunking: v})} />

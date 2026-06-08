@@ -14,11 +14,17 @@ interface UserOverride {
   id: string; user_id: string; knowledge_base_id: string; override_type: string;
 }
 
+interface DepartmentOverride {
+  id: string; department_id: string; knowledge_base_id: string; override_type: string;
+}
+
 interface UserBrief { id: string; username: string; email: string; }
+interface DepartmentBrief { id: string; name: string; }
 
 export default function KnowledgeBasesPage() {
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
   const [users, setUsers] = useState<UserBrief[]>([]);
+  const [departments, setDepartments] = useState<DepartmentBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", type: "enterprise" });
@@ -27,11 +33,15 @@ export default function KnowledgeBasesPage() {
   // Override management state
   const [overrideKbId, setOverrideKbId] = useState<string | null>(null);
   const [overrideKbName, setOverrideKbName] = useState("");
-  const [overrides, setOverrides] = useState<UserOverride[]>([]);
+  const [overrideTab, setOverrideTab] = useState<"user" | "department">("user");
+  const [userOverrides, setUserOverrides] = useState<UserOverride[]>([]);
+  const [deptOverrides, setDeptOverrides] = useState<DepartmentOverride[]>([]);
 
   // "Add override" form state
   const [newOverrideUserId, setNewOverrideUserId] = useState("");
   const [newOverrideType, setNewOverrideType] = useState("allow");
+  const [newOverrideDeptId, setNewOverrideDeptId] = useState("");
+  const [newOverrideDeptType, setNewOverrideDeptType] = useState("allow");
 
   const fetchKbs = useCallback(async () => {
     try {
@@ -48,7 +58,14 @@ export default function KnowledgeBasesPage() {
     } catch (err) { console.error(err); }
   }, []);
 
-  useEffect(() => { fetchKbs(); fetchUsers(); }, [fetchKbs, fetchUsers]);
+  const fetchDepartments = useCallback(async () => {
+    try {
+      const d = await apiGet<DepartmentBrief[]>("/api/departments");
+      setDepartments(d);
+    } catch (err) { console.error(err); }
+  }, []);
+
+  useEffect(() => { fetchKbs(); fetchUsers(); fetchDepartments(); }, [fetchKbs, fetchUsers, fetchDepartments]);
 
   async function handleCreate() {
     if (!form.name.trim()) { setError("请输入知识库名称"); return; }
@@ -90,35 +107,65 @@ export default function KnowledgeBasesPage() {
   async function openOverrides(kb: KnowledgeBase) {
     setOverrideKbId(kb.id);
     setOverrideKbName(kb.name);
+    setOverrideTab("user");
     setNewOverrideUserId(""); setNewOverrideType("allow");
+    setNewOverrideDeptId(""); setNewOverrideDeptType("allow");
     try {
-      const o = await apiGet<UserOverride[]>(`/api/knowledge-bases/${kb.id}/user-overrides`);
-      setOverrides(o);
+      const [uo, dos] = await Promise.all([
+        apiGet<UserOverride[]>(`/api/knowledge-bases/${kb.id}/user-overrides`),
+        apiGet<DepartmentOverride[]>(`/api/knowledge-bases/${kb.id}/department-overrides`),
+      ]);
+      setUserOverrides(uo);
+      setDeptOverrides(dos);
     } catch (err) { console.error(err); }
   }
 
-  async function handleAddOverride() {
+  async function handleAddUserOverride() {
     if (!overrideKbId || !newOverrideUserId) return;
     try {
       await apiPost(`/api/knowledge-bases/${overrideKbId}/user-overrides`, {
         user_id: newOverrideUserId, override_type: newOverrideType,
       });
       const o = await apiGet<UserOverride[]>(`/api/knowledge-bases/${overrideKbId}/user-overrides`);
-      setOverrides(o);
+      setUserOverrides(o);
       setNewOverrideUserId("");
     } catch (err) { console.error(err); }
   }
 
-  async function handleDeleteOverride(overrideId: string) {
+  async function handleDeleteUserOverride(overrideId: string) {
     if (!overrideKbId) return;
     try {
       await apiDelete(`/api/knowledge-bases/${overrideKbId}/user-overrides/${overrideId}`);
-      setOverrides(prev => prev.filter(o => o.id !== overrideId));
+      setUserOverrides(prev => prev.filter(o => o.id !== overrideId));
+    } catch (err) { console.error(err); }
+  }
+
+  async function handleAddDeptOverride() {
+    if (!overrideKbId || !newOverrideDeptId) return;
+    try {
+      await apiPost(`/api/knowledge-bases/${overrideKbId}/department-overrides`, {
+        department_id: newOverrideDeptId, override_type: newOverrideDeptType,
+      });
+      const o = await apiGet<DepartmentOverride[]>(`/api/knowledge-bases/${overrideKbId}/department-overrides`);
+      setDeptOverrides(o);
+      setNewOverrideDeptId("");
+    } catch (err) { console.error(err); }
+  }
+
+  async function handleDeleteDeptOverride(overrideId: string) {
+    if (!overrideKbId) return;
+    try {
+      await apiDelete(`/api/knowledge-bases/${overrideKbId}/department-overrides/${overrideId}`);
+      setDeptOverrides(prev => prev.filter(o => o.id !== overrideId));
     } catch (err) { console.error(err); }
   }
 
   function getUserName(uid: string) {
     return users.find(u => u.id === uid)?.username || uid.slice(0, 8);
+  }
+
+  function getDeptName(did: string) {
+    return departments.find(d => d.id === did)?.name || did.slice(0, 8);
   }
 
   // ── Render ──
@@ -172,48 +219,122 @@ export default function KnowledgeBasesPage() {
               </div>
 
               <p className="text-xs text-gray-500 mb-3">
-                默认所有用户可查询。配置覆盖后可禁止或显式允许特定用户。
+                默认所有用户可查询。用户级覆盖优先级高于部门级。
               </p>
 
-              <div className="max-h-48 space-y-1 overflow-y-auto mb-3">
-                {overrides.map(o => (
-                  <div key={o.id} className="flex items-center justify-between rounded bg-gray-50 px-3 py-1.5 text-xs">
-                    <span>
-                      {o.override_type === "deny" ? (
-                        <ShieldOff size={12} className="inline mr-1 text-red-500" />
-                      ) : (
-                        <Shield size={12} className="inline mr-1 text-green-500" />
-                      )}
-                      用户:{getUserName(o.user_id)}
-                      <span className={o.override_type === "deny" ? "text-red-600 ml-1" : "text-green-600 ml-1"}>
-                        {o.override_type === "deny" ? "禁止查询" : "允许查询"}
-                      </span>
-                    </span>
-                    <button onClick={() => handleDeleteOverride(o.id)}
-                      className="text-red-400 hover:text-red-600"><X size={12} /></button>
-                  </div>
-                ))}
-                {overrides.length === 0 && (
-                  <p className="text-xs text-gray-400 text-center py-2">暂无覆盖配置</p>
-                )}
-              </div>
-
-              <div className="flex gap-2 border-t pt-3">
-                <select value={newOverrideUserId} onChange={(e) => setNewOverrideUserId(e.target.value)}
-                  className="flex-1 rounded border px-2 py-1 text-xs">
-                  <option value="">选择用户...</option>
-                  {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
-                </select>
-                <select value={newOverrideType} onChange={(e) => setNewOverrideType(e.target.value)}
-                  className="rounded border px-2 py-1 text-xs">
-                  <option value="deny">禁止</option>
-                  <option value="allow">允许</option>
-                </select>
-                <button onClick={handleAddOverride}
-                  className="rounded bg-gray-700 px-3 py-1 text-xs font-medium text-white hover:bg-gray-800">
-                  添加
+              {/* Tab bar */}
+              <div className="flex border-b mb-3">
+                <button
+                  onClick={() => setOverrideTab("user")}
+                  className={`px-4 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                    overrideTab === "user"
+                      ? "border-blue-600 text-blue-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  用户覆盖 ({userOverrides.length})
+                </button>
+                <button
+                  onClick={() => setOverrideTab("department")}
+                  className={`px-4 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                    overrideTab === "department"
+                      ? "border-blue-600 text-blue-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  部门覆盖 ({deptOverrides.length})
                 </button>
               </div>
+
+              {/* User overrides tab */}
+              {overrideTab === "user" && (
+                <>
+                  <div className="max-h-48 space-y-1 overflow-y-auto mb-3">
+                    {userOverrides.map(o => (
+                      <div key={o.id} className="flex items-center justify-between rounded bg-gray-50 px-3 py-1.5 text-xs">
+                        <span>
+                          {o.override_type === "deny" ? (
+                            <ShieldOff size={12} className="inline mr-1 text-red-500" />
+                          ) : (
+                            <Shield size={12} className="inline mr-1 text-green-500" />
+                          )}
+                          用户:{getUserName(o.user_id)}
+                          <span className={o.override_type === "deny" ? "text-red-600 ml-1" : "text-green-600 ml-1"}>
+                            {o.override_type === "deny" ? "禁止查询" : "允许查询"}
+                          </span>
+                        </span>
+                        <button onClick={() => handleDeleteUserOverride(o.id)}
+                          className="text-red-400 hover:text-red-600"><X size={12} /></button>
+                      </div>
+                    ))}
+                    {userOverrides.length === 0 && (
+                      <p className="text-xs text-gray-400 text-center py-2">暂无用户覆盖</p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 border-t pt-3">
+                    <select value={newOverrideUserId} onChange={(e) => setNewOverrideUserId(e.target.value)}
+                      className="flex-1 rounded border px-2 py-1 text-xs">
+                      <option value="">选择用户...</option>
+                      {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
+                    </select>
+                    <select value={newOverrideType} onChange={(e) => setNewOverrideType(e.target.value)}
+                      className="rounded border px-2 py-1 text-xs">
+                      <option value="deny">禁止</option>
+                      <option value="allow">允许</option>
+                    </select>
+                    <button onClick={handleAddUserOverride}
+                      className="rounded bg-gray-700 px-3 py-1 text-xs font-medium text-white hover:bg-gray-800">
+                      添加
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Department overrides tab */}
+              {overrideTab === "department" && (
+                <>
+                  <div className="max-h-48 space-y-1 overflow-y-auto mb-3">
+                    {deptOverrides.map(o => (
+                      <div key={o.id} className="flex items-center justify-between rounded bg-gray-50 px-3 py-1.5 text-xs">
+                        <span>
+                          {o.override_type === "deny" ? (
+                            <ShieldOff size={12} className="inline mr-1 text-red-500" />
+                          ) : (
+                            <Shield size={12} className="inline mr-1 text-green-500" />
+                          )}
+                          部门:{getDeptName(o.department_id)}
+                          <span className={o.override_type === "deny" ? "text-red-600 ml-1" : "text-green-600 ml-1"}>
+                            {o.override_type === "deny" ? "禁止查询" : "允许查询"}
+                          </span>
+                        </span>
+                        <button onClick={() => handleDeleteDeptOverride(o.id)}
+                          className="text-red-400 hover:text-red-600"><X size={12} /></button>
+                      </div>
+                    ))}
+                    {deptOverrides.length === 0 && (
+                      <p className="text-xs text-gray-400 text-center py-2">暂无部门覆盖</p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 border-t pt-3">
+                    <select value={newOverrideDeptId} onChange={(e) => setNewOverrideDeptId(e.target.value)}
+                      className="flex-1 rounded border px-2 py-1 text-xs">
+                      <option value="">选择部门...</option>
+                      {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                    <select value={newOverrideDeptType} onChange={(e) => setNewOverrideDeptType(e.target.value)}
+                      className="rounded border px-2 py-1 text-xs">
+                      <option value="deny">禁止</option>
+                      <option value="allow">允许</option>
+                    </select>
+                    <button onClick={handleAddDeptOverride}
+                      className="rounded bg-gray-700 px-3 py-1 text-xs font-medium text-white hover:bg-gray-800">
+                      添加
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

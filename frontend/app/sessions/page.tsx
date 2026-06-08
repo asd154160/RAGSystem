@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AdminLayout from "@/components/layout/admin-layout";
-import { apiGet, apiPost } from "@/lib/api";
-import { MessageSquare, ThumbsUp, ThumbsDown, ChevronDown, ChevronRight, User, Bot, AlertCircle, CheckCircle } from "lucide-react";
+import { apiGet } from "@/lib/api";
+import { MessageSquare, ThumbsUp, ThumbsDown, ChevronDown, ChevronRight, User, Bot } from "lucide-react";
 
 interface Session {
   id: string;
@@ -26,15 +26,6 @@ interface Message {
   sources: { document_name: string; chunk_text: string; score: number; section_title: string; page_no: number }[];
 }
 
-interface Gap {
-  id: string;
-  question: string;
-  status: string;
-  note: string | null;
-  created_at: string | null;
-  session_id: string | null;
-}
-
 export default function SessionsPage() {
   const searchParams = useSearchParams();
   const highlightSessionId = searchParams.get("session_id");
@@ -43,7 +34,6 @@ export default function SessionsPage() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(highlightSessionId);
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
-  const [gaps, setGaps] = useState<Record<string, Gap[]>>({});
   const [loadingMessages, setLoadingMessages] = useState(false);
 
   const loadSessions = async () => {
@@ -65,12 +55,8 @@ export default function SessionsPage() {
     if (messages[sessionId]) return;
     setLoadingMessages(true);
     try {
-      const [sessionData, gapsData] = await Promise.all([
-        apiGet<{ messages: Message[] }>(`/api/sessions/${sessionId}`),
-        apiGet<Gap[]>(`/api/knowledge-gaps?session_id=${sessionId}`),
-      ]);
+      const sessionData = await apiGet<{ messages: Message[] }>(`/api/sessions/${sessionId}`);
       setMessages(prev => ({ ...prev, [sessionId]: sessionData.messages || [] }));
-      setGaps(prev => ({ ...prev, [sessionId]: gapsData }));
     } catch {}
     setLoadingMessages(false);
   };
@@ -82,18 +68,6 @@ export default function SessionsPage() {
       setExpandedId(sessionId);
       loadMessages(sessionId);
     }
-  };
-
-  const handleResolve = async (gapId: string, sessionId: string) => {
-    try {
-      await apiPost(`/api/knowledge-gaps/${gapId}/resolve`);
-      setGaps(prev => ({
-        ...prev,
-        [sessionId]: (prev[sessionId] || []).map(g =>
-          g.id === gapId ? { ...g, status: "resolved" } : g
-        ),
-      }));
-    } catch {}
   };
 
   const formatContent = (content: string) => {
@@ -178,40 +152,6 @@ export default function SessionsPage() {
                           )}
                         </div>
                       ))}
-                    </div>
-                  )}
-                  {/* Knowledge Gaps */}
-                  {(gaps[s.id] || []).length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-gray-200">
-                      <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1">
-                        <AlertCircle size={12} className="text-orange-500" /> 知识缺口
-                      </p>
-                      <div className="space-y-2">
-                        {gaps[s.id].map(g => (
-                          <div key={g.id} className="rounded bg-orange-50 border border-orange-100 px-3 py-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-sm font-medium text-gray-700 truncate">{g.question}</span>
-                                <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${
-                                  g.status === "open" ? "bg-orange-100 text-orange-700" :
-                                  g.status === "processing" ? "bg-blue-100 text-blue-700" :
-                                  "bg-green-100 text-green-700"
-                                }`}>{g.status === "open" ? "待处理" : g.status === "processing" ? "处理中" : "已解决"}</span>
-                              </div>
-                              {g.status !== "resolved" && (
-                                <button onClick={() => handleResolve(g.id, s.id)}
-                                  className="flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700 shrink-0">
-                                  <CheckCircle size={11} /> 已解决
-                                </button>
-                              )}
-                            </div>
-                            {g.note && <p className="text-xs text-gray-400 mt-1">{g.note}</p>}
-                            <p className="text-xs text-gray-400 mt-1">
-                              {g.created_at ? new Date(g.created_at).toLocaleString("zh-CN") : ""}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
                     </div>
                   )}
                 </div>

@@ -18,22 +18,30 @@ async def _pg_keyword_search(
     knowledge_base_ids: list[str] | None = None,
     top_k: int = 20,
 ) -> list[dict]:
-    """PostgreSQL 关键词检索 — ILIKE 召回 + pg_trgm similarity 排序"""
+    """PostgreSQL 关键词检索 — 同时搜索 chunk_text + section_title
+    用 GREATEST(word_similarity(chunk), word_similarity(title)) 做评分排序，
+    避免 parent-child 策略中 child chunk 文本过短（仅一行）导致关键词命中不到的问题。
+    """
     async with async_session() as db:
         if knowledge_base_ids:
             sql = text("""
                 SELECT c.chunk_id, c.document_id, c.knowledge_base_id,
                        c.chunk_index, c.chunk_text, c.section_title,
                        c.page_no, c.parent_chunk_id, d.title as document_name,
-                       similarity(c.chunk_text, :query) AS sim_score
+                       GREATEST(
+                         word_similarity(:query, c.chunk_text),
+                         COALESCE(word_similarity(:query, c.section_title), 0)
+                       ) AS sim_score
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.id
                 WHERE c.is_active = true
                   AND c.parent_chunk_id IS NOT NULL
                   AND c.knowledge_base_id = ANY(:kb_ids)
                   AND (
-                    similarity(c.chunk_text, :query) > 0.05
+                    word_similarity(:query, c.chunk_text) > 0.15
+                    OR word_similarity(:query, COALESCE(c.section_title, '')) > 0.15
                     OR c.chunk_text ILIKE :pattern
+                    OR c.section_title ILIKE :pattern
                   )
                 ORDER BY sim_score DESC
                 LIMIT :limit
@@ -44,14 +52,19 @@ async def _pg_keyword_search(
                 SELECT c.chunk_id, c.document_id, c.knowledge_base_id,
                        c.chunk_index, c.chunk_text, c.section_title,
                        c.page_no, c.parent_chunk_id, d.title as document_name,
-                       similarity(c.chunk_text, :query) AS sim_score
+                       GREATEST(
+                         word_similarity(:query, c.chunk_text),
+                         COALESCE(word_similarity(:query, c.section_title), 0)
+                       ) AS sim_score
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.id
                 WHERE c.is_active = true
                   AND c.parent_chunk_id IS NOT NULL
                   AND (
-                    similarity(c.chunk_text, :query) > 0.05
+                    word_similarity(:query, c.chunk_text) > 0.15
+                    OR word_similarity(:query, COALESCE(c.section_title, '')) > 0.15
                     OR c.chunk_text ILIKE :pattern
+                    OR c.section_title ILIKE :pattern
                   )
                 ORDER BY sim_score DESC
                 LIMIT :limit
@@ -142,8 +155,9 @@ async def _enrich_results(results: list[dict]) -> list[dict]:
 
 async def hybrid_search(
     query: str,
-    top_k: int = 10,
+    top_k: int = 7,
     knowledge_base_ids: list[str] | None = None,
+    rrf_k: int = 60,
 ) -> list[dict]:
     """混合检索：向量 + PostgreSQL 关键词(pg_trgm) + RRF（Redis 缓存命中直接返回）"""
     from app.core.redis_cache import retrieval_cache_key, async_get, async_set, RETRIEVAL_TTL
@@ -165,7 +179,7 @@ async def hybrid_search(
     pg_results = await _pg_keyword_search(query, knowledge_base_ids, top_k=top_k * 2)
 
     if vec_results and pg_results:
-        results = _rrf_fusion(vec_results, pg_results)
+        results = _rrf_fusion(vec_results, pg_results, k=rrf_k)
     elif vec_results:
         results = vec_results
     else:
@@ -277,24 +291,34 @@ async def validate_retrieval_results(results: list[dict]) -> list[dict]:
 
 
 def build_context(results: list[dict]) -> str:
-    """从检索结果构造 LLM 上下文文本"""
+    """从检索结果构造 LLM 上下文文本，相同 parent 的 child 合并为一个块"""
     parts = []
-    for i, r in enumerate(results):
+    seen = set()
+    for r in results:
+        pid = r.get("parent_chunk_id") or r.get("chunk_id", "")
+        if pid in seen:
+            continue
+        seen.add(pid)
         text = r.get("parent_chunk_text") or r.get("chunk_text", "")
-        parts.append(f"[{i + 1}] {text}")
+        parts.append(f"[{len(parts) + 1}] {text}")
     return "\n\n---\n\n".join(parts)
 
 
 def build_sources(results: list[dict]) -> list[dict]:
-    """构造来源引用列表"""
-    return [
-        {
-            "document_name": r.get("document_name", ""),
-            "chunk_text": r.get("chunk_text", "")[:500],
-            "section_title": r.get("section_title"),
-            "page_no": r.get("page_no"),
-            "score": r.get("score") or r.get("rrf_score", 0),
-            "chunk_id": r.get("chunk_id"),
-        }
-        for r in results
-    ]
+    """构造来源引用列表，按 parent_chunk_id 合并避免同一父块产生多条碎片来源"""
+    merged: dict[str, dict] = {}
+    for r in results:
+        pid = r.get("parent_chunk_id") or r.get("chunk_id", "")
+        if pid in merged:
+            merged[pid]["score"] = max(merged[pid]["score"], r.get("score") or r.get("rrf_score", 0))
+        else:
+            text = r.get("parent_chunk_text") or r.get("chunk_text", "")
+            merged[pid] = {
+                "document_name": r.get("document_name", ""),
+                "chunk_text": text[:800],
+                "section_title": r.get("section_title"),
+                "page_no": r.get("page_no"),
+                "score": r.get("score") or r.get("rrf_score", 0),
+                "chunk_id": r.get("chunk_id"),
+            }
+    return sorted(merged.values(), key=lambda x: x["score"], reverse=True)

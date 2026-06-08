@@ -149,8 +149,8 @@ docker compose exec backend python scripts/migrate_milvus_schema.py --force     
 - **模型文件**：`models/` 目录首次启动时自动从 HuggingFace 下载 bge-m3 + bge-reranker-v2-m3（约 3GB），也可手动运行 `python scripts/download_models.py` 预下载。国内用户设置 `HF_ENDPOINT=https://hf-mirror.com` 加速
 - **GPU 要求**：可选。默认 CPU 模式可直接运行。有 NVIDIA GPU 时 `docker compose up -d` 直接启用 GPU 加速（需 nvidia-container-toolkit），`docker-compose.yml` 中 backend 和 worker 已内置 `deploy.resources.reservations.devices` 配置。
 - **LLM 配置**：DB 中 `model_configs` 表的 `is_default=true` 模型优先于 `.env`。无 DB 配置时回退 `.env` 的 `LLM_API_KEY`
-- **KB 级权限**：`UserKBOverride`（allow/deny）控制用户对特定 KB 的查询权限。默认所有登录用户可查询所有企业 KB，Admin/SuperAdmin 始终可见全部。`kb_access.py` 提供 `get_accessible_kb_ids()` 查询访问列表。
-- **DB session 双模式**：`db/session.py` 提供 `async_session`（FastAPI 异步）和 `sync_session`（worker/Celery 同步），互不干扰
+- **KB 级权限**：`UserKBOverride` + `DepartmentKBOverride`（allow/deny）控制用户/部门对特定 KB 的查询权限。优先级：用户级 > 部门级 > 默认允许。多部门中任一 allow 即放行。默认所有登录用户可查询所有企业 KB，Admin/SuperAdmin 始终可见全部。`kb_access.py` 提供 `get_accessible_kb_ids()` 查询访问列表。
+- **DB session 双模式**：`db/session.py` 提供 `async_session`（FastAPI 异步）和 `sync_session`（worker 同步），互不干扰
 - **前端 API 代理**：`next.config.js` 内置 `rewrites` 将 `/api/*` 代理到 `http://backend:8000`，容器内无需直连后端端口。`NEXT_PUBLIC_API_URL` 设为空（`?? ""`）时走代理，设为 `http://localhost:8000` 时直连后端（本地开发）。
 - **CORS 配置**：后端 `cors_origins` 从 `.env` 的 `CORS_ORIGINS` 读取（逗号分隔，默认 `http://localhost:3000`），生产部署时需添加外部域名（如 `https://rag.asd154160.icu`）。
 
@@ -161,8 +161,9 @@ docker compose exec backend python scripts/migrate_milvus_schema.py --force     
 | 模型 | 用途 |
 |------|------|
 | `User` / `Role` / `Permission` | RBAC 三表，User↔Role↔Permission 多对多 |
-| `Department` | 部门树（ABAC），user↔department 多对一 |
+| `Department` | 部门树（ABAC），user↔department 多对一 + 多对多（`department_members`） |
 | `KnowledgeBase` | 知识库（含 `kb_type`: `enterprise` / `personal`） |
+| `UserKBOverride` / `DepartmentKBOverride` | KB 查询权限覆盖：用户级/部门级 allow/deny |
 | `Document` / `DocumentVersion` / `DocumentProcessingTask` | 文档生命周期 + 版本 + 异步任务 |
 | `Chunk` | 文档块，`is_active` / `status` 控制可检索性 |
 | `ChatSession` / `ChatMessage` | 会话 + 消息（含反馈 `rating`） |
@@ -234,13 +235,12 @@ Redis 检索缓存命中? → 命中直接返回 / 未命中→ Milvus向量(is_
 | `backend/app/core/config.py` | pydantic-settings，`.env` 映射（带默认值） |
 | `backend/app/core/security.py` | JWT 生成/验证，`get_current_user`（预加载 Role.permissions），`require_permission` |
 | `backend/app/db/session.py` | `async_session`（asyncpg）+ `sync_session`（psycopg2） |
-| `backend/whl/` | PyTorch CUDA 12.4 本地 wheel（torch-2.5.1+cu124，867MB），构建时免下载 |
-| `backend/Dockerfile` | Docker 构建：本地 wheel 安装 PyTorch → 清华镜像安装其他依赖 |
+| `backend/Dockerfile` | Docker 构建：PyTorch 官方 index (cu124) 安装 → 清华镜像安装其他依赖 |
 | `backend/app/workers/main.py` | 异步 Worker——轮询 document_processing_tasks，parse→chunk→embed→index |
 | `backend/app/services/retrieval_service.py` | 混合检索：Milvus 向量 + pg_trgm 关键词 + RRF 融合 + DB 二次校验（validate_retrieval_results） |
 | `backend/app/services/langgraph_workflow.py` | LangGraph StateGraph（纯流式，单次 astream 执行）：retrieve→rerank→check→expand→LLM 流式生成 |
 | `backend/app/services/chunking.py` | 统一 Parent-Child 分块策略（企业/个人 RAG 共用） |
-| `backend/app/services/kb_access.py` | KB 查询权限：`get_accessible_kb_ids()` 基于 `manage_knowledge_base` 权限 + UserKBOverride |
+| `backend/app/services/kb_access.py` | KB 查询权限：`get_accessible_kb_ids()` 基于 `manage_knowledge_base` 权限 + DepartmentKBOverride + UserKBOverride（优先级递减） |
 | `backend/app/api/enterprise_rag.py` | 企业 RAG SSE 问答（含 metrics 埋点、审计） |
 | `backend/app/api/personal_rag.py` | 个人 RAG SSE 问答 + 文件上传/管理（含自动 KB 创建） |
 | `backend/app/api/sessions.py` | 会话 CRUD + 用户反馈（enterprise/personal kb_type 强制用户隔离） |

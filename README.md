@@ -22,12 +22,63 @@
 
 ---
 
+## 当前环境
+
+| 组件 | 版本 | 说明 |
+|------|------|------|
+| OS | Windows 11 Home China 10.0.26200 | 宿主机 |
+| Docker | Docker Desktop + WSL2 | 容器运行时 |
+| CUDA | 12.4 (cu124) | NVIDIA CUDA Toolkit |
+| PyTorch | 2.5.1+cu124 | 从 PyTorch 官方 index 安装 |
+| Python | 3.12 (容器内) | Docker 镜像 python:3.12-slim |
+| NVIDIA 驱动 | 550+ | Linux x86_64，WSL2 内 |
+| sentence-transformers | 3.3.1 | bge-m3 embedding 模型 |
+| FlagEmbedding | 1.3.3 | bge-reranker-v2-m3 精排模型 |
+
+### GPU 兼容性
+
+PyTorch 2.5.1 官方预编译 wheel 对应的 CUDA 版本及显卡支持情况：
+
+| CUDA 版本 | PyTorch wheel | 驱动要求 | 支持显卡 |
+|-----------|--------------|----------|----------|
+| cu124 | `torch==2.5.1+cu124` | ≥ 550 | GTX 16 系、RTX 20/30/40 系 |
+| cu126 | `torch==2.6.0+cu126` | ≥ 555 | GTX 16 系、RTX 20/30/40/50 系 |
+| cu128 | `torch==2.7.0+cu128` | ≥ 570 | GTX 16 系、RTX 20/30/40/50 系 |
+
+> **说明**：CUDA 向下兼容，cu124 支持所有 compute capability ≤ 8.9 的显卡。RTX 50 系（Blackwell, sm_120）需要 CUDA 12.6+，因此必须升级到 cu126 或更高版本。
+
+**各显卡系列对应关系：**
+
+| 显卡系列 | 架构 | Compute Capability | 最低 CUDA | 推荐 PyTorch |
+|----------|------|-------------------|-----------|-------------|
+| GTX 16 系 (1650/1660) | Turing | 7.5 | CUDA 10.0 | `torch==2.5.1+cu124` |
+| RTX 20 系 (2060/2070/2080) | Turing | 7.5 | CUDA 10.0 | `torch==2.5.1+cu124` |
+| RTX 30 系 (3050/3060/3070/3080/3090) | Ampere | 8.0/8.6 | CUDA 11.0 | `torch==2.5.1+cu124` |
+| RTX 40 系 (4060/4070/4080/4090) | Ada Lovelace | 8.9 | CUDA 11.8 | `torch==2.5.1+cu124` |
+| RTX 50 系 (5060/5070/5080/5090) | Blackwell | 12.0 | CUDA 12.6 | `torch==2.6.0+cu126` |
+
+**升级 PyTorch CUDA 版本方法**（如使用 RTX 50 系）：
+
+1. 修改 `backend/Dockerfile` 中的 PyTorch 安装命令：
+   ```dockerfile
+   # 将 cu124 改为 cu126，torch 版本改为 2.6.0
+   RUN pip install --no-cache-dir --timeout 600 --retries 5 \
+       --index-url https://download.pytorch.org/whl/cu126 \
+       torch==2.6.0 && \
+       ...
+   ```
+2. 重新构建镜像：`docker compose build --no-cache backend worker`
+
+**纯 CPU 运行**：删除 `docker-compose.yml` 中 `backend` 和 `worker` 的 `deploy.resources.reservations.devices` 块即可。模型会自动 fallback 到 CPU（注意：bge-reranker 的 `use_fp16=True` 在 CPU 上可能报错，需改为 `False`）。
+
+---
+
 ## 快速开始
 
 ### 环境要求
 
 - Docker Desktop（含 Docker Compose v2）— 需启用 WSL2 GPU 支持
-- NVIDIA GPU（8GB+ VRAM）+ 驱动 550+ + CUDA 12.4+
+- NVIDIA GPU（8GB+ VRAM）+ 驱动 ≥ 550（见上方 GPU 兼容表）
 - Python 3.10+（仅用于模型下载脚本）
 - 16GB+ 内存，30GB+ 磁盘空间
 
@@ -41,7 +92,7 @@ bash scripts/setup.sh
 .\scripts\setup.ps1
 ```
 
-脚本自动完成：`.env` 检查 → 模型下载（`bge-m3` + `bge-reranker-v2-m3`，约 3GB）→ torch wheel 检查 → Docker 构建启动 → 健康检查等待 → 种子数据初始化。
+脚本自动完成：`.env` 检查 → 模型下载（`bge-m3` + `bge-reranker-v2-m3`，约 3GB）→ Docker 构建启动 → 健康检查等待 → 种子数据初始化。
 
 ### 分步部署
 
@@ -68,20 +119,7 @@ NEXT_PUBLIC_API_URL=
 CORS_ORIGINS=http://localhost:3000
 ```
 
-**2. 准备 PyTorch CUDA wheel**
-
-从 PyTorch 官网下载 CUDA 12.4 wheel 到 `backend/whl/`（约 867MB）：
-
-```bash
-# 创建 whl 目录并下载
-mkdir -p backend/whl
-# 下载地址: https://download.pytorch.org/whl/cu124/torch-2.5.1%2Bcu124-cp312-cp312-linux_x86_64.whl
-# 或用浏览器下载后放入 backend/whl/
-```
-
-> Dockerfile 会优先安装本地 wheel，避免每次构建下载 867MB。
-
-**3. 下载模型文件**
+**2. 下载模型文件**
 
 ```bash
 python scripts/download_models.py
@@ -95,13 +133,13 @@ models/
 └── bge-reranker-v2-m3/       # rerank 模型（~1GB）
 ```
 
-**4. 启动服务**
+**3. 启动服务**
 
 ```bash
 docker compose up -d
 ```
 
-首次启动会拉取基础镜像并构建，后端首次构建约 3-5 分钟（PyTorch CUDA 12.4 版从本地 wheel 安装，无需下载）。共 9 个服务：
+首次启动会拉取基础镜像并构建，后端首次构建约 3-5 分钟（PyTorch CUDA 12.4 版从 PyTorch 官方 index 下载安装）。共 9 个服务：
 
 | 服务 | 用途 | 端口 |
 |------|------|------|
@@ -115,7 +153,9 @@ docker compose up -d
 | frontend | Next.js 前端 | 3000 |
 | backup-cron | 定时备份（PostgreSQL + MinIO + Milvus） | — |
 
-**5. 初始化种子数据**
+> **纯 CPU 运行**：删除 `docker-compose.yml` 中 `backend` 和 `worker` 的 `deploy.resources.reservations.devices` 块，并将 `backend/app/services/rerank_service.py` 第 24 行的 `use_fp16=True` 改为 `use_fp16=False`。
+
+**4. 初始化种子数据**
 
 ```bash
 docker compose exec backend PYTHONPATH=/app python app/db/seed.py
@@ -173,7 +213,7 @@ RAGSystem/
 │   │   │   ├── users.py                # 用户 CRUD + 密码修改 + 个人RAG开关
 │   │   │   ├── departments.py          # 部门 CRUD + M2M 成员管理
 │   │   │   ├── roles.py                # 角色/权限列表
-│   │   │   ├── knowledge_bases.py      # 知识库 CRUD + KB权限 + 用户覆盖 + RAG配置
+│   │   │   ├── knowledge_bases.py      # 知识库 CRUD + KB权限 + 用户/部门覆盖 + RAG配置
 │   │   │   ├── documents.py            # 文档上传/列表/审核/发布/下架/重试
 │   │   │   ├── enterprise_rag.py       # 企业 RAG 流式问答（SSE）
 │   │   │   ├── personal_rag.py         # 个人 RAG 流式问答（SSE）
@@ -200,8 +240,6 @@ RAGSystem/
 │   │   ├── schemas/                    # Pydantic 请求/响应模型
 │   │   └── workers/                    # 异步任务 Worker
 │   │       └── main.py                 # 文档解析 + Embedding（轮询处理）
-│   ├── whl/                         # PyTorch CUDA 12.4 本地 wheel（构建加速）
-│   │   └── torch-2.5.1+cu124-cp312-cp312-linux_x86_64.whl
 │   ├── requirements.txt
 │   ├── requirements-docker.txt
 │   └── Dockerfile
@@ -271,8 +309,8 @@ RAGSystem/
 | GET | `/api/knowledge-bases/accessible` | 需登录 | 当前用户有权查询的 KB（权限过滤后） |
 | POST | `/api/knowledge-bases` | Admin | 创建知识库 |
 | GET/PATCH/DELETE | `/api/knowledge-bases/{id}` | 需登录 / Admin / Admin | KB 详情 / 更新 / 删除 |
-| GET/POST/DELETE | `/api/knowledge-bases/{id}/user-overrides` | 需登录 / Admin / Admin | KB 用户查询覆盖（allow/deny） |
-| GET/POST/DELETE | `/api/knowledge-bases/{id}/user-overrides` | 需登录 / Admin / Admin | 用户覆盖列表 / 添加 / 移除 |
+| GET/POST/DELETE | `/api/knowledge-bases/{id}/user-overrides` | 需登录 / Admin / Admin | 用户查询覆盖：列表 / 添加 / 移除 |
+| GET/POST/DELETE | `/api/knowledge-bases/{id}/department-overrides` | 需登录 / Admin / Admin | 部门查询覆盖：列表 / 添加 / 移除 |
 | GET/PATCH | `/api/knowledge-bases/{id}/rag-config` | 需登录 | RAG 参数配置 |
 | POST | `/api/documents/upload` | upload_document | 上传文档（txt/md/pdf/docx/xlsx/pptx，≤100MB） |
 | GET | `/api/documents` | 需登录 | 文档列表 |
@@ -482,22 +520,23 @@ graph 执行完毕 → 获取 context / low_confidence / sources
 | User | query_knowledge_base |
 | userin | query_knowledge_base（个人 RAG 专用） |
 
-**KB 级权限** — 控制知识库查询访问：
+**KB 级权限** — 控制知识库查询访问，两级覆盖机制：
 
 ```
 UserKBOverride(user_id, knowledge_base_id, allow|deny)
+DepartmentKBOverride(department_id, knowledge_base_id, allow|deny)
 ```
 
-解析逻辑（`kb_access.py`）：
+解析逻辑（`kb_access.py`），优先级从高到低：
 1. 拥有 `manage_knowledge_base` 权限 → 可访问全部 KB
 2. 默认：所有登录用户可查询所有企业 KB
-3. UserKBOverride.deny → 禁止该用户查询指定 KB
-4. UserKBOverride.allow → 显式允许（用于从 deny 中恢复）
+3. 部门级覆盖：用户的部门集合（主部门 + M2M）中任一部门 allow 即放行，全部 deny 则拒绝
+4. 用户级覆盖（最高优先级）：UserKBOverride.deny 强制禁止，UserKBOverride.allow 覆盖部门拒绝
 
 **部门-用户连接：**
 - `User.department_id` (FK，直属部门)
 - `department_members` (M2M，多部门成员关系)
-- KB 访问解析时同时检查两路
+- KB 访问解析时同时检查两路，收集用户所属全部部门
 
 ---
 
@@ -538,7 +577,7 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)
 | 问答 | Think Block | `<think>` 思考过程自动折叠，可展开查看 |
 | 问答 | 来源引用 | `[编号] 文档名` 带 hover 详情卡片 |
 | 权限 | 系统 RBAC | 5 角色 × 9 权限，前后端双重检查 |
-| 权限 | KB 级权限 | 按用户 allow/deny 控制知识库查询访问 |
+| 权限 | KB 级权限 | 按用户/部门 allow/deny 控制知识库查询访问，用户级优先于部门级 |
 | 权限 | 部门连接 | User FK + M2M 双路部门归属 |
 | 管理 | 会话管理 | 创建/列表/删除/反馈(like/dislike) |
 | 管理 | 审计日志 | 全量操作记录，按 action/user_id 过滤 |
@@ -561,11 +600,22 @@ UserKBOverride(user_id, knowledge_base_id, allow|deny)
 - 模型路径可由环境变量覆盖：`BGE_M3_PATH`、`RERANKER_PATH`
 
 ### Docker
+
 - `backend` 和 `frontend` 挂载源码目录，代码改动即改即生效（新增前端页面需重启 `docker compose restart frontend`）
 - `.env` 变更后需重建容器：`docker compose up -d --force-recreate backend worker`
-- **PyTorch CUDA 12.4 版**从本地 `backend/whl/torch-2.5.1+cu124-*.whl` 安装，构建无需下载。若 whl 缺失：从 https://download.pytorch.org/whl/cu124 下载对应 wheel 放入 `backend/whl/`
+- **PyTorch** 从官方 index 下载对应 CUDA 版本的 wheel（Dockerfile 中配置，40 系及以下用 cu124，50 系需改为 cu126）
 - Docker Desktop 需在 Settings → Resources → WSL Integration 中启用 GPU 支持
 - Worker 内存建议 4GB+（bge-m3 模型加载需约 2GB VRAM）
+
+### GPU 故障排查
+
+| 问题 | 可能原因 | 解决方法 |
+|------|---------|----------|
+| `torch.cuda.is_available()` 返回 False | 容器未分配 GPU | 确认 `docker-compose.yml` 中 `deploy.resources.reservations.devices` 配置存在 |
+| CUDA error: no kernel image for execution | 显卡架构不被当前 CUDA 版本支持 | RTX 50 系需升级到 cu126+，参考上方 GPU 兼容表 |
+| `nvidia-smi` 无输出 | 驱动未安装或 WSL2 未配置 | `nvidia-smi` 在宿主机确认驱动正常；检查 Docker Desktop WSL2 GPU 集成 |
+| bge-reranker CPU 运行报错 | `use_fp16=True` 在 CPU 上不支持 | 改为 `use_fp16=False`（`rerank_service.py` 第 24 行） |
+| 模型加载 OOM | 显存不足 | 建议 8GB+ VRAM；或改用 CPU 模式 |
 
 ### 常见问题
 

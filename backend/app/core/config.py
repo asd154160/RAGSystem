@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # JWT — must be set via JWT_SECRET_KEY env var
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
+    access_token_expire_minutes: int = 120
 
     # LLM
     llm_provider: str = "openai"        # openai / deepseek / claude / qwen / openai-compatible
@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     llm_api_base: str = ""              # 可选，自定义 API 地址
     llm_model_name: str = "gpt-4o"
     llm_temperature: float = 0.1
+
+    # CORS
+    cors_origins: str = "http://localhost:3000"
+
+    # Cache TTL (seconds)
+    retrieval_cache_ttl: int = 300       # 检索结果缓存 5 分钟
+    embedding_cache_ttl: int = 604800    # Embedding 缓存 7 天
+    llm_config_cache_ttl: int = 60       # LLM DB 配置缓存 60 秒
 
     # Logging
     log_level: str = "INFO"

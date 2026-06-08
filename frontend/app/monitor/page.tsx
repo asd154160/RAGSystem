@@ -6,7 +6,6 @@ import { apiGet, apiPost } from "@/lib/api";
 import { Activity, Clock, AlertTriangle, Zap, RotateCw } from "lucide-react";
 
 const NODE_LABELS: Record<string, string> = {
-  rag_rewrite_ms: "查询改写",
   rag_retrieve_ms: "混合检索",
   rag_rerank_ms: "重排序",
   rag_check_confidence_ms: "置信度检测",

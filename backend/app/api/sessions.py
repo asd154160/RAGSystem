@@ -19,10 +19,16 @@ async def list_sessions(
     current_user: User = Depends(get_current_user),
 ):
     q = select(ChatSession)
-    if user_id:
-        q = q.where(ChatSession.user_id == user_id)
-    else:
+    is_admin = any(p.code == "manage_user" for r in current_user.roles for p in r.permissions)
+
+    # enterprise / personal 会话强制隔离：用户只能看自己的
+    if kb_type in ("enterprise", "personal"):
         q = q.where(ChatSession.user_id == current_user.id)
+    elif user_id and is_admin:
+        q = q.where(ChatSession.user_id == user_id)
+    elif not is_admin:
+        q = q.where(ChatSession.user_id == current_user.id)
+
     if kb_type:
         q = q.where(ChatSession.kb_type == kb_type)
     q = q.order_by(ChatSession.updated_at.desc())
@@ -47,11 +53,12 @@ async def get_session(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(ChatSession)
-        .where(ChatSession.id == session_id, ChatSession.user_id == current_user.id)
-        .options(selectinload(ChatSession.messages).selectinload(ChatMessage.sources))
-    )
+    is_admin = any(p.code == "manage_user" for r in current_user.roles for p in r.permissions)
+    q = select(ChatSession).where(ChatSession.id == session_id)
+    if not is_admin:
+        q = q.where(ChatSession.user_id == current_user.id)
+    q = q.options(selectinload(ChatSession.messages).selectinload(ChatMessage.sources))
+    result = await db.execute(q)
     session = result.scalar_one_or_none()
     if not session:
         return {"error": "会话不存在"}, 404
@@ -94,12 +101,11 @@ async def delete_session(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(ChatSession).where(
-            ChatSession.id == session_id,
-            ChatSession.user_id == current_user.id,
-        )
-    )
+    is_admin = any(p.code == "manage_user" for r in current_user.roles for p in r.permissions)
+    q = select(ChatSession).where(ChatSession.id == session_id)
+    if not is_admin:
+        q = q.where(ChatSession.user_id == current_user.id)
+    result = await db.execute(q)
     session = result.scalar_one_or_none()
     if not session:
         return {"error": "会话不存在"}, 404

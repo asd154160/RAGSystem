@@ -11,9 +11,12 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.db.session import get_db, AsyncSession
-from app.db.models import User
+from app.db.models import User, Role
 
 security_scheme = HTTPBearer()
+
+# 默认角色名——新用户注册时自动分配
+DEFAULT_ROLE_NAME = "User"
 
 
 def hash_password(password: str) -> str:
@@ -74,7 +77,7 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌无效")
 
     result = await db.execute(
-        select(User).options(selectinload(User.roles)).where(User.id == user_id)
+        select(User).options(selectinload(User.roles).selectinload(Role.permissions)).where(User.id == user_id)
     )
     user = result.scalar_one_or_none()
     if not user or not user.is_active:

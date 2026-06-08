@@ -115,7 +115,7 @@ function EnterpriseRagInner() {
     try {
       for await (const event of streamChat("/api/enterprise-rag/chat/stream", {
         question,
-        top_k: 5,
+        top_k: 7,
         session_id: sessionId || undefined,
         knowledge_base_ids: selectedKbIds.length > 0 ? selectedKbIds : undefined,
       })) {

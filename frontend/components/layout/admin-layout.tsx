@@ -16,14 +16,13 @@ interface NavItem {
   icon: any;
   permission?: string;
   permissions?: string[];  // any one of these is sufficient
-  roles?: string[];
 }
 
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "工作台", icon: LayoutDashboard },
   { href: "/users", label: "用户管理", icon: Users, permission: "manage_user" },
   { href: "/departments", label: "部门管理", icon: Building2, permission: "manage_department" },
-  { href: "/permissions", label: "权限管理", icon: Shield, roles: ["SuperAdmin", "Admin"] },
+  { href: "/permissions", label: "权限管理", icon: Shield, permission: "manage_user" },
   { href: "/knowledge-bases", label: "知识库", icon: Database, permission: "manage_knowledge_base" },
   { href: "/documents", label: "文档管理", icon: FileText, permissions: ["upload_document", "review_document", "publish_document"] },
   { href: "/review", label: "文档审核", icon: CheckCircle, permission: "review_document" },
@@ -31,14 +30,14 @@ const navItems: NavItem[] = [
   { href: "/rag-configs", label: "RAG参数", icon: Sliders, permission: "manage_knowledge_base" },
   { href: "/audit-logs", label: "审计日志", icon: ScrollText, permission: "view_audit_logs" },
   { href: "/sessions", label: "会话记录", icon: MessageSquare, permission: "manage_knowledge_base" },
-  { href: "/evaluations", label: "RAG评测", icon: BarChart3, roles: ["SuperAdmin", "Admin"] },
-  { href: "/monitor", label: "系统监控", icon: Cpu, roles: ["SuperAdmin", "Admin"] },
+  { href: "/evaluations", label: "RAG评测", icon: BarChart3, permission: "manage_knowledge_base" },
+  { href: "/monitor", label: "系统监控", icon: Cpu, permission: "manage_knowledge_base" },
 ];
 
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, loading, hasRole, hasPermission } = useAuth();
+  const { user, loading, hasPermission } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -59,15 +58,13 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const currentItem = navItems.find(n => pathname.startsWith(n.href));
   const canAccess = !currentItem || (
     (!currentItem.permission || hasPermission(currentItem.permission)) &&
-    (!currentItem.permissions || currentItem.permissions.some(p => hasPermission(p))) &&
-    (!currentItem.roles || hasRole(...currentItem.roles))
+    (!currentItem.permissions || currentItem.permissions.some(p => hasPermission(p)))
   );
 
   // Filter visible nav items
   const visibleItems = navItems.filter(item => {
     if (item.permission && !hasPermission(item.permission)) return false;
     if (item.permissions && !item.permissions.some(p => hasPermission(p))) return false;
-    if (item.roles && !hasRole(...item.roles)) return false;
     return true;
   });
 
@@ -122,7 +119,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
               <div className="text-center">
                 <Shield size={48} className="mx-auto mb-3 text-gray-300" />
                 <p className="text-gray-500">无权访问此页面</p>
-                <p className="mt-1 text-sm text-gray-400">需要权限：{currentItem?.permission || currentItem?.permissions?.join(" / ") || currentItem?.roles?.join(", ")}</p>
+                <p className="mt-1 text-sm text-gray-400">需要权限：{currentItem?.permission || currentItem?.permissions?.join(" / ")}</p>
               </div>
             </div>
           )}
