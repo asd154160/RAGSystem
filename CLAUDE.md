@@ -6,8 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 cd D:\Desktop\RAGSystem
-docker compose up -d                         # 启动全部服务（CPU 模式，无 GPU）
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d  # GPU 加速模式
+docker compose up -d                         # 启动全部服务（docker-compose.yml 已内置 GPU，需 nvidia-container-toolkit）
 docker compose up -d --build backend worker  # 代码变更后重建
 docker compose restart backend               # 快速重启后端（volume 挂载，代码即改即生效）
 docker compose restart frontend              # 重启前端（Next.js dev 模式需重启识别新页面）
@@ -119,18 +118,18 @@ docker compose exec backend python scripts/migrate_milvus_schema.py --force     
 ┌─ Frontend (Next.js 14) ──────────────────────────────────┐
 │  App Router: /login /enterprise-rag /personal-rag         │
 │  lib/api.ts (JWT注入)  lib/stream.ts (SSE流式)            │
-│  权限: useAuth() → hasPermission / hasRole / canUsePersonalRag │
+│  权限: useAuth() → hasPermission / canUsePersonalRag │
 └──────────────────────────────┬────────────────────────────┘
                                │ SSE / REST + JWT Bearer
 ┌─ Backend (FastAPI) ──────────┼────────────────────────────┐
-│  main.py (14 routers)        │                            │
-│  security.py (JWT + require_role + require_permission)    │
+│  main.py (13 routers)        │                            │
+│  security.py (JWT + require_permission + get_current_user) │
 │  ┌── services ───────────────────────────────────────┐    │
 │  │ retrieval_service.py → pg_trgm + Milvus → RRF     │    │
 │  │ rerank_service.py → bge-reranker-v2-m3            │    │
 │  │ langgraph_workflow.py → LangGraph StateGraph 编排 │    │
 │  │ llm_service.py → OpenAI-compatible 多模型         │    │
-│  │ chunking.py → RecursiveTextSplitter               │    │
+│  │ chunking.py → Parent-Child 滑动窗口切分           │    │
 │  │ embedding_service.py → bge-m3 (sentence-transformers) │
 │  │ milvus_service.py / minio_service.py / kb_access.py   │
 │  └───────────────────────────────────────────────────┘    │
@@ -148,10 +147,12 @@ docker compose exec backend python scripts/migrate_milvus_schema.py --force     
 - **种子数据**：`docker compose exec backend python -m app.db.seed`（`SEED_VERSION` 版本控制：DB 中版本 < 代码版本时增量 upsert，版本一致则跳过；首次运行全量创建）
 - **向量入库**：Docker worker 自动处理 parse + chunk + embed 全流程，无需本地运行
 - **模型文件**：`models/` 目录首次启动时自动从 HuggingFace 下载 bge-m3 + bge-reranker-v2-m3（约 3GB），也可手动运行 `python scripts/download_models.py` 预下载。国内用户设置 `HF_ENDPOINT=https://hf-mirror.com` 加速
-- **GPU 要求**：可选。默认 CPU 模式可直接运行。有 NVIDIA GPU 时使用 `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d` 启用 GPU 加速（需 nvidia-container-toolkit）
+- **GPU 要求**：可选。默认 CPU 模式可直接运行。有 NVIDIA GPU 时 `docker compose up -d` 直接启用 GPU 加速（需 nvidia-container-toolkit），`docker-compose.yml` 中 backend 和 worker 已内置 `deploy.resources.reservations.devices` 配置。
 - **LLM 配置**：DB 中 `model_configs` 表的 `is_default=true` 模型优先于 `.env`。无 DB 配置时回退 `.env` 的 `LLM_API_KEY`
 - **KB 级权限**：`UserKBOverride`（allow/deny）控制用户对特定 KB 的查询权限。默认所有登录用户可查询所有企业 KB，Admin/SuperAdmin 始终可见全部。`kb_access.py` 提供 `get_accessible_kb_ids()` 查询访问列表。
 - **DB session 双模式**：`db/session.py` 提供 `async_session`（FastAPI 异步）和 `sync_session`（worker/Celery 同步），互不干扰
+- **前端 API 代理**：`next.config.js` 内置 `rewrites` 将 `/api/*` 代理到 `http://backend:8000`，容器内无需直连后端端口。`NEXT_PUBLIC_API_URL` 设为空（`?? ""`）时走代理，设为 `http://localhost:8000` 时直连后端（本地开发）。
+- **CORS 配置**：后端 `cors_origins` 从 `.env` 的 `CORS_ORIGINS` 读取（逗号分隔，默认 `http://localhost:3000`），生产部署时需添加外部域名（如 `https://rag.asd154160.icu`）。
 
 ## 数据模型
 
@@ -174,7 +175,7 @@ RBAC (角色→权限) + ABAC (用户属性→数据访问)。
 
 9 个权限码：`manage_user`, `manage_department`, `manage_knowledge_base`, `upload_document`, `review_document`, `publish_document`, `query_knowledge_base`, `manage_model_config`, `view_audit_logs`
 
-后端用 `require_role("SuperAdmin","Admin")` 和 `require_permission("manage_user")` 守卫；前端通过 `useAuth()` hook 获取 `hasPermission()` / `hasRole()` / `canUsePersonalRag`，侧栏和页面据此过滤。
+后端全面使用 `require_permission("manage_user")` 等权限码守卫（不再使用 `require_role`）；前端通过 `useAuth()` hook 从 `/api/auth/me` 获取 DB 实际权限，`hasPermission()` 判断页面和侧栏可见性。
 
 ## 认证流程
 
@@ -191,7 +192,7 @@ Access Token (30 min) + Refresh Token (7 days)，JWT Bearer。前端 `api.ts` �
 |------|---------------|--------------|
 | 知识库范围 | 企业级知识库（管理员管理） | 用户个人知识库（自动创建） |
 | 检索范围 | 用户有权限的 KB + 已发布文档 | 仅个人 KB，仅本人可见 |
-| 分块策略 | 标准 RecursiveTextSplitter | Parent-Child：检索小 chunk，回填大 parent |
+| 分块策略 | Parent-Child：检索小 chunk，回填大 parent | Parent-Child：检索小 chunk，回填大 parent |
 | 额外增强 | contextual_retrieval（生成 chunk 上下文前缀，内置固定） | contextual_retrieval（生成 chunk 上下文前缀，内置固定） |
 | API 入口 | `enterprise_rag.py` | `personal_rag.py` |
 | 路由前缀 | `/api/enterprise-rag` | `/api/personal-rag` |
@@ -200,7 +201,7 @@ Access Token (30 min) + Refresh Token (7 days)，JWT Bearer。前端 `api.ts` �
 ## 检索链路
 
 ```
-Query Rewrite → Redis 检索缓存命中? → 命中直接返回 / 未命中→ Milvus向量(is_active过滤) + pg_trgm关键词 → RRF融合 → Rerank精排 → 置信度检测 → Parent Chunk回填 → DB二次校验(chunk.is_active + document.status) → LLM流式生成
+Redis 检索缓存命中? → 命中直接返回 / 未命中→ Milvus向量(is_active过滤) + pg_trgm关键词(word_similarity+section_title) → RRF融合 → Rerank精排 → 置信度检测 → Parent Chunk回填 → DB二次校验(chunk.is_active + document.status) → LLM流式生成
 ```
 
 两层 Metadata 过滤：
@@ -229,20 +230,20 @@ Query Rewrite → Redis 检索缓存命中? → 命中直接返回 / 未命中�
 
 | 文件 | 用途 |
 |------|------|
-| `backend/app/main.py` | 入口，路由注册（14 个 router），CORS |
+| `backend/app/main.py` | 入口，路由注册（13 个 router），CORS（`cors_origins` 从 `.env` 读取） |
 | `backend/app/core/config.py` | pydantic-settings，`.env` 映射（带默认值） |
-| `backend/app/core/security.py` | JWT 生成/验证，`get_current_user`，`require_role`，`require_permission` |
+| `backend/app/core/security.py` | JWT 生成/验证，`get_current_user`（预加载 Role.permissions），`require_permission` |
 | `backend/app/db/session.py` | `async_session`（asyncpg）+ `sync_session`（psycopg2） |
 | `backend/whl/` | PyTorch CUDA 12.4 本地 wheel（torch-2.5.1+cu124，867MB），构建时免下载 |
 | `backend/Dockerfile` | Docker 构建：本地 wheel 安装 PyTorch → 清华镜像安装其他依赖 |
 | `backend/app/workers/main.py` | 异步 Worker——轮询 document_processing_tasks，parse→chunk→embed→index |
 | `backend/app/services/retrieval_service.py` | 混合检索：Milvus 向量 + pg_trgm 关键词 + RRF 融合 + DB 二次校验（validate_retrieval_results） |
-| `backend/app/services/langgraph_workflow.py` | LangGraph StateGraph（纯流式）：rewrite→retrieve→rerank→check→expand→LLM 流式生成 |
-| `backend/app/services/chunking.py` | 企业 RAG（标准）和个人 RAG（parent-child）两种分块策略 |
-| `backend/app/services/kb_access.py` | KB 查询权限：`get_accessible_kb_ids()` 基于 UserKBOverride（allow/deny）控制 |
-| `backend/app/api/enterprise_rag.py` | 企业 RAG SSE 问答（含 metrics 埋点、审计、知识缺口） |
+| `backend/app/services/langgraph_workflow.py` | LangGraph StateGraph（纯流式，单次 astream 执行）：retrieve→rerank→check→expand→LLM 流式生成 |
+| `backend/app/services/chunking.py` | 统一 Parent-Child 分块策略（企业/个人 RAG 共用） |
+| `backend/app/services/kb_access.py` | KB 查询权限：`get_accessible_kb_ids()` 基于 `manage_knowledge_base` 权限 + UserKBOverride |
+| `backend/app/api/enterprise_rag.py` | 企业 RAG SSE 问答（含 metrics 埋点、审计） |
 | `backend/app/api/personal_rag.py` | 个人 RAG SSE 问答 + 文件上传/管理（含自动 KB 创建） |
-| `backend/app/api/sessions.py` | 会话 CRUD + 用户反馈 |
+| `backend/app/api/sessions.py` | 会话 CRUD + 用户反馈（enterprise/personal kb_type 强制用户隔离） |
 | `backend/app/api/model_configs.py` | 模型配置 CRUD（需 `manage_model_config`） |
 | `frontend/lib/auth-context.tsx` | 前端权限上下文（`useAuth` hook） |
 | `frontend/lib/api.ts` | `apiGet`/`apiPost`/`apiPatch`/`apiDelete`（含 JWT 自动注入 + 401 刷新重试） |
@@ -253,4 +254,22 @@ Query Rewrite → Redis 检索缓存命中? → 命中直接返回 / 未命中�
 
 ## 前端页面
 
-`/login`, `/register`, `/dashboard` — 公开 | `/enterprise-rag`, `/personal-rag` — 聊天页 | `/users`, `/departments`, `/permissions` — 用户管理 | `/knowledge-bases`, `/documents`, `/review` — 知识库管理 | `/model-configs`, `/rag-configs` — 配置 | `/audit-logs` — 审计 | `/sessions` — 会话记录（含消息反馈+知识缺口） | `/evaluations`, `/monitor` — 评测运维
+`/login`, `/register`, `/dashboard` — 公开 | `/enterprise-rag`, `/personal-rag` — 聊天页 | `/users`, `/departments`, `/permissions` — 用户管理 | `/knowledge-bases`, `/documents`, `/review` — 知识库管理 | `/model-configs`, `/rag-configs` — 配置 | `/audit-logs` — 审计 | `/sessions` — 会话记录（含消息反馈） | `/evaluations`, `/monitor` — 评测运维
+
+## RAG 默认参数
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `max_tokens` (LLM) | 1024 | LLM 最大输出 token 数 |
+| `request_timeout` (LLM) | 120s | LLM API 超时 |
+| `top_k_vector` | 7 | 向量检索返回数 |
+| `top_k_bm25` | 7 | 关键词检索返回数 |
+| `rerank_top_n` | 8 | Rerank 后保留数 |
+| `score_threshold` | 0.1 | 低置信度阈值（rerank 启用时自动降为 0.005） |
+
+## 检索服务关键实现
+
+- `_pg_keyword_search`：同时搜索 `chunk_text` + `section_title`，使用 `word_similarity()`（非 `similarity()`）避免短查询+长chunk 相似度偏低
+- `check_confidence`：rerank 启用时自动用 0.005 阈值（适配 reranker 分数范围）
+- 会话 `/api/sessions?kb_type=enterprise|personal` 强制按当前用户隔离
+- `get_current_user` 预加载 `Role.permissions`，`/api/auth/me` 返回 DB 实际权限码
