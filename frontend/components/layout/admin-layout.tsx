@@ -6,7 +6,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { useAuth, AuthProvider } from "@/lib/auth-context";
 import {
   LayoutDashboard, Users, Building2, Shield, Database, FileText,
-  CheckCircle, LogOut, Menu, X, Cpu, Sliders, ScrollText, MessageSquare, BarChart3,
+  CheckCircle, LogOut, Menu, X, Cpu, Sliders, ScrollText, MessageSquare, BarChart3, Settings,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -20,6 +20,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "工作台", icon: LayoutDashboard },
+  { href: "/settings", label: "用户设置", icon: Settings },
   { href: "/users", label: "用户管理", icon: Users, permission: "manage_user" },
   { href: "/departments", label: "部门管理", icon: Building2, permission: "manage_department" },
   { href: "/permissions", label: "权限管理", icon: Shield, permission: "manage_user" },
@@ -99,6 +100,10 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           <div className="mb-2 px-3 text-xs text-gray-400">
             {user?.username} · {user?.roles.join(", ")}
           </div>
+          <Link href="/settings"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-500 hover:bg-gray-100 mb-1">
+            <Settings size={16} /> 用户设置
+          </Link>
           <button onClick={() => { localStorage.removeItem("access_token"); router.push("/login"); }}
             className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-500 hover:bg-gray-100">
             <LogOut size={16} /> 退出登录

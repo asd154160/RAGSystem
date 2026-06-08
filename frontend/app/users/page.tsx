@@ -25,6 +25,8 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [editRoles, setEditRoles] = useState<string[]>([]);
   const [editDept, setEditDept] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPassword, setEditPassword] = useState("");
 
   const fetchData = useCallback(async () => {
     try {
@@ -71,17 +73,26 @@ export default function UsersPage() {
     setEditingUser(user.id);
     setEditRoles(user.roles?.map(r => r.id) || []);
     setEditDept(user.department_id || "");
+    setEditEmail(user.email || "");
+    setEditPassword("");
   };
 
   const cancelEdit = () => { setEditingUser(null); };
 
   const handleSaveEdit = async (userId: string) => {
-    await apiPatch(`/api/users/${userId}`, {
-      role_ids: editRoles,
-      department_id: editDept || null,
-    });
-    setEditingUser(null);
-    fetchData();
+    try {
+      const body: Record<string, unknown> = {
+        role_ids: editRoles,
+        department_id: editDept || null,
+        email: editEmail || null,
+      };
+      if (editPassword) body.password = editPassword;
+      await apiPatch(`/api/users/${userId}`, body);
+      setEditingUser(null);
+      fetchData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "保存失败");
+    }
   };
 
   const toggleRole = (roleId: string) => {
@@ -91,6 +102,20 @@ export default function UsersPage() {
   function getDeptName(deptId: string | null | undefined) {
     if (!deptId) return null;
     return departments.find(d => d.id === deptId)?.name || deptId;
+  }
+
+  function getUserDeptNames(user: User): string[] {
+    const names: string[] = [];
+    // 多对多部门成员（从 department_members 表）
+    for (const d of user.departments || []) {
+      names.push(d.name);
+    }
+    // 主部门（department_id FK），如果不在列表中则补充
+    const primaryName = getDeptName(user.department_id);
+    if (primaryName && !names.includes(primaryName)) {
+      names.unshift(primaryName);
+    }
+    return names;
   }
 
   if (loading) {
@@ -174,6 +199,7 @@ export default function UsersPage() {
               <tr>
                 <th className="px-4 py-3 font-medium">用户名</th>
                 <th className="px-4 py-3 font-medium">邮箱</th>
+                <th className="px-4 py-3 font-medium">密码</th>
                 <th className="px-4 py-3 font-medium">部门</th>
                 <th className="px-4 py-3 font-medium">状态</th>
                 <th className="px-4 py-3 font-medium">角色</th>
@@ -181,12 +207,32 @@ export default function UsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y text-gray-700">
-              {users.map((user) => (
+              {users.map((user) => {
+                const isEditing = editingUser === user.id;
+                return (
                 <tr key={user.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium">{user.username}</td>
-                  <td className="px-4 py-3">{user.email}</td>
                   <td className="px-4 py-3">
-                    {editingUser === user.id ? (
+                    {isEditing ? (
+                      <input type="email" value={editEmail}
+                        onChange={(e) => setEditEmail(e.target.value)}
+                        className="w-full rounded border px-2 py-1 text-xs" />
+                    ) : (
+                      <span className="text-xs">{user.email}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {isEditing ? (
+                      <input type="password" value={editPassword}
+                        onChange={(e) => setEditPassword(e.target.value)}
+                        placeholder="留空则不修改"
+                        className="w-full rounded border px-2 py-1 text-xs" />
+                    ) : (
+                      <span className="text-xs text-gray-400">********</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {isEditing ? (
                       <select
                         value={editDept}
                         onChange={(e) => setEditDept(e.target.value)}
@@ -198,7 +244,14 @@ export default function UsersPage() {
                         ))}
                       </select>
                     ) : (
-                      <span className="text-xs">{getDeptName(user.department_id) || <span className="text-gray-400">-</span>}</span>
+                      <span className="text-xs">
+                        {(() => {
+                          const names = getUserDeptNames(user);
+                          return names.length > 0
+                            ? names.join(", ")
+                            : <span className="text-gray-400">-</span>;
+                        })()}
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-3">
@@ -208,7 +261,7 @@ export default function UsersPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    {editingUser === user.id ? (
+                    {isEditing ? (
                       <div className="flex flex-col gap-1">
                         <div className="flex flex-wrap gap-1">
                           {allRoles.map(r => (
@@ -242,7 +295,8 @@ export default function UsersPage() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

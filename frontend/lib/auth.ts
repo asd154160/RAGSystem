@@ -58,7 +58,11 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("登录失败");
+  if (!res.ok) {
+    let detail = "登录失败";
+    try { const d = await res.json(); detail = d.detail || detail; } catch {}
+    throw new Error(detail);
+  }
   const result: LoginResponse = await res.json();
   localStorage.setItem("access_token", result.access_token);
   localStorage.setItem("refresh_token", result.refresh_token);

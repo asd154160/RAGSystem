@@ -69,11 +69,26 @@ export async function apiDelete(path: string): Promise<void> {
   if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`);
 }
 
+async function parseError(res: Response, method: string, path: string): Promise<Error> {
+  let detail = "";
+  try { const d = await res.json(); detail = d.detail || ""; } catch {}
+  return new Error(detail || `${method} ${path} failed: ${res.status}`);
+}
+
 export async function apiPatch<T = unknown>(path: string, body?: unknown): Promise<T> {
   const res = await apiFetch(path, {
     method: "PATCH",
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`PATCH ${path} failed: ${res.status}`);
+  if (!res.ok) throw await parseError(res, "PATCH", path);
+  return res.json();
+}
+
+export async function apiPut<T = unknown>(path: string, body?: unknown): Promise<T> {
+  const res = await apiFetch(path, {
+    method: "PUT",
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw await parseError(res, "PUT", path);
   return res.json();
 }

@@ -1,3 +1,8 @@
+export interface DepartmentBrief {
+  id: string;
+  name: string;
+}
+
 export interface User {
   id: string;
   username: string;
@@ -6,6 +11,7 @@ export interface User {
   is_active: boolean;
   personal_rag_enabled: boolean;
   roles: RoleBrief[];
+  departments: DepartmentBrief[];
   created_at: string;
   updated_at: string;
 }

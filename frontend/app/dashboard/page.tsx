@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
 import { useAuth, AuthProvider } from "@/lib/auth-context";
-import { LogOut, Building2, User, Database, FileText } from "lucide-react";
+import { LogOut, Building2, User, Database, FileText, Settings } from "lucide-react";
 import Link from "next/link";
 
 function DashboardInner() {
@@ -28,6 +28,10 @@ function DashboardInner() {
         <h1 className="text-lg font-bold text-gray-800">工作台</h1>
         <div className="flex items-center gap-4">
           <span className="text-xs text-gray-400">{user?.username} · {user?.roles.join(", ")}</span>
+          <Link href="/settings"
+            className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100">
+            <Settings size={16} /> 设置
+          </Link>
           <button
             onClick={() => {
               localStorage.removeItem("access_token");

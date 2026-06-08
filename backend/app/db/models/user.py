@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
+from app.db.models.associations import department_members
 
 
 class User(Base):
@@ -30,4 +31,9 @@ class User(Base):
     )
 
     department = relationship("Department", back_populates="users", lazy="selectin")
+    departments = relationship(
+        "Department", secondary=department_members, lazy="selectin",
+        primaryjoin="User.id == department_members.c.user_id",
+        secondaryjoin="Department.id == department_members.c.department_id",
+    )
     roles = relationship("Role", secondary="user_roles", back_populates="users", lazy="selectin")

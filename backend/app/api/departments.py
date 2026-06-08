@@ -158,6 +158,8 @@ async def add_member(
         return {"message": "用户已在部门中"}
 
     dept.members.append(member)
+    if member.department_id is None:
+        member.department_id = dept_id
     await db.commit()
     return {"message": "成员已添加"}
 
@@ -183,6 +185,8 @@ async def remove_member(
 
     if member in dept.members:
         dept.members.remove(member)
+        if member.department_id == dept_id:
+            member.department_id = None
         await db.commit()
 
     return {"message": "成员已移除"}

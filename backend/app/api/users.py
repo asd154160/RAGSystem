@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -16,7 +17,10 @@ async def list_users(
     current_user: User = Depends(require_permission("manage_user")),
 ):
     result = await db.execute(
-        select(User).options(selectinload(User.roles)).order_by(User.created_at.desc())
+        select(User).options(
+            selectinload(User.roles),
+            selectinload(User.departments),
+        ).order_by(User.created_at.desc())
     )
     return result.scalars().all()
 
@@ -60,7 +64,38 @@ async def create_user(
     await db.refresh(user)
 
     result = await db.execute(
-        select(User).options(selectinload(User.roles)).where(User.id == user.id)
+        select(User).options(selectinload(User.roles), selectinload(User.departments)).where(User.id == user.id)
+    )
+    return result.scalar_one()
+
+
+class ProfileUpdate(BaseModel):
+    email: str | None = Field(None, max_length=255)
+    password: str = Field(..., min_length=1)  # 当前密码，用于验证身份
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_my_profile(
+    data: ProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(data.password, current_user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="密码错误")
+
+    if data.email is not None:
+        email_check = await db.execute(
+            select(User).where(User.email == data.email, User.id != current_user.id)
+        )
+        if email_check.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="邮箱已被使用")
+        current_user.email = data.email
+
+    await db.commit()
+    await db.refresh(current_user)
+
+    result = await db.execute(
+        select(User).options(selectinload(User.roles), selectinload(User.departments)).where(User.id == current_user.id)
     )
     return result.scalar_one()
 
@@ -72,7 +107,7 @@ async def get_user(
     current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(User).options(selectinload(User.roles)).where(User.id == user_id)
+        select(User).options(selectinload(User.roles), selectinload(User.departments)).where(User.id == user_id)
     )
     user = result.scalar_one_or_none()
     if not user:
@@ -88,7 +123,7 @@ async def update_user(
     current_user: User = Depends(require_permission("manage_user")),
 ):
     result = await db.execute(
-        select(User).options(selectinload(User.roles)).where(User.id == user_id)
+        select(User).options(selectinload(User.roles), selectinload(User.departments)).where(User.id == user_id)
     )
     user = result.scalar_one_or_none()
     if not user:
@@ -96,9 +131,13 @@ async def update_user(
 
     update_data = data.model_dump(exclude_unset=True)
     role_ids = update_data.pop("role_ids", None)
+    password = update_data.pop("password", None)
 
     for key, value in update_data.items():
         setattr(user, key, value)
+
+    if password is not None:
+        user.hashed_password = hash_password(password)
 
     if role_ids is not None:
         role_result = await db.execute(select(Role).where(Role.id.in_(role_ids)))
@@ -134,7 +173,7 @@ async def toggle_personal_rag(
     current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(User).options(selectinload(User.roles)).where(User.id == user_id)
+        select(User).options(selectinload(User.roles), selectinload(User.departments)).where(User.id == user_id)
     )
     user = result.scalar_one_or_none()
     if not user:
@@ -144,9 +183,6 @@ async def toggle_personal_rag(
     await db.commit()
     await db.refresh(user)
     return user
-
-
-from pydantic import BaseModel, Field
 
 
 class PasswordChangeRequest(BaseModel):
