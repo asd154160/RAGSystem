@@ -252,9 +252,38 @@ Redis 检索缓存命中? → 命中直接返回 / 未命中→ Milvus向量(is_
 | `backend/app/services/evaluation_service.py` | 评测执行：hybrid_search 检索 → LLM 生成 → Embedding 余弦相似度评分 |
 | `backend/app/api/evaluations.py` | 评测 API：数据集 CRUD + 评测运行 + 逐题结果查看 + 删除运行 |
 
-## 前端页面
+## 前端路由组
 
-`/login`, `/register`, `/dashboard` — 公开 | `/enterprise-rag`, `/personal-rag` — 聊天页 | `/users`, `/departments`, `/permissions` — 用户管理 | `/knowledge-bases`, `/documents`, `/review` — 知识库管理 | `/model-configs`, `/rag-configs` — 配置 | `/audit-logs` — 审计 | `/sessions` — 会话记录（含消息反馈） | `/evaluations`, `/monitor` — 评测运维
+Next.js App Router 使用三个路由组，每组有独立 layout 和认证策略：
+
+| 路由组 | 路径 | Layout | 认证 |
+|--------|------|--------|------|
+| `(public)` | `/login`, `/register` | 居中卡片布局，无侧栏 | 公开，无需登录 |
+| `(chat)` | `/enterprise-rag`, `/personal-rag` | `ProtectedRoute` 守卫 | 需登录 |
+| `(admin)` | 所有管理页面 | `AdminLayout`（权限过滤侧栏）+ `ProtectedRoute` | 需登录 + 权限 |
+
+`(admin)` 子页面：`/dashboard`, `/users`, `/departments`, `/permissions`, `/knowledge-bases`, `/documents`, `/review`, `/sessions`, `/model-configs`, `/rag-configs`, `/audit-logs`, `/evaluations`, `/monitor`, `/settings`
+
+根布局 `layout.tsx` 集成 `Providers`（`AuthProvider` + `ToastProvider`），`AuthProvider` 只提供状态不跳转路由，`ProtectedRoute` 负责守卫。
+
+## 前端设计系统
+
+**CSS 变量**（`globals.css`）：`--color-background` (#fafafa), `--color-surface` (#fff), `--color-border` (#e5e5e5), `--color-text-primary` (#171717), `--color-text-secondary` (#737373), `--color-accent` (#1a1a2e), `--color-accent-soft` (#eef2ff)
+
+**Tailwind 扩展**（`tailwind.config.ts`）：`accent`, `accent-soft`, `surface`, `border` 颜色 + `font-sans`（Geist Sans + PingFang SC + Microsoft YaHei）+ `rounded-card` (12px)
+
+**UI 组件库**（`components/ui/`，barrel 导出 `index.ts`）：`Button`（primary/secondary/ghost/danger + loading）, `Input` / `Textarea`（统一样式 + error 提示）, `Badge`, `Avatar`, `Card`（default/hover 变体）, `Modal`（ESC 关闭 + 点击遮罩关闭）, `EmptyState`, `Toast`（success/error/warning/info + 自动消失）
+
+**Chat 组件**（`components/chat/`）：`ChatPanel`（聊天面板）, `SessionList`（会话列表）, `SourceCard`（来源卡片）, `ThinkBlock`（思维链展示）
+
+## 前端 lib 模块
+
+| 文件 | 用途 |
+|------|------|
+| `lib/api.ts` | `apiGet`/`apiPost`/`apiPatch`/`apiDelete` — JWT 自动注入 + 401 刷新重试 |
+| `lib/auth.ts` | `login()`/`logout()`/`getToken()`/`refreshToken()` — 客户端 JWT 操作 |
+| `lib/auth-context.tsx` | `AuthProvider` + `useAuth()` hook — 权限状态（不处理路由跳转） |
+| `lib/stream.ts` | `streamChat` 异步生成器 — SSE 流式解析 |
 
 ## RAG 默认参数
 
