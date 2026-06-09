@@ -1,132 +1,115 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { isAuthenticated } from "@/lib/auth";
-import { useAuth, AuthProvider } from "@/lib/auth-context";
-import { LogOut, Building2, User, Database, FileText, Settings } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { Building2, User, Database, FileText, CheckCircle, Users, Cpu } from "lucide-react";
 import Link from "next/link";
-
-function DashboardInner() {
-  const router = useRouter();
-  const { user, loading, hasPermission, canUsePersonalRag } = useAuth();
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    if (!loading && !isAuthenticated()) {
-      router.push("/login");
-    } else if (!loading) {
-      setReady(true);
-    }
-  }, [loading, router]);
-
-  if (!ready || loading) return null;
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-4 shadow-sm">
-        <h1 className="text-lg font-bold text-gray-800">工作台</h1>
-        <div className="flex items-center gap-4">
-          <span className="text-xs text-gray-400">{user?.username} · {user?.roles.join(", ")}</span>
-          <Link href="/settings"
-            className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100">
-            <Settings size={16} /> 设置
-          </Link>
-          <button
-            onClick={() => {
-              localStorage.removeItem("access_token");
-              router.push("/login");
-            }}
-            className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100"
-          >
-            <LogOut size={16} /> 退出
-          </button>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-5xl px-6 py-10">
-        <h2 className="mb-6 text-xl font-semibold text-gray-800">快速入口</h2>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {/* Enterprise RAG - anyone with query_knowledge_base */}
-          {hasPermission("query_knowledge_base") && (
-            <Link href="/enterprise-rag"
-              className="flex flex-col items-center gap-3 rounded-lg border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
-              <Building2 size={32} className="text-blue-600" />
-              <span className="text-sm font-medium">企业 RAG 问答</span>
-              <span className="text-xs text-gray-400">企业知识库检索</span>
-            </Link>
-          )}
-
-          {/* Personal RAG - only if enabled by admin */}
-          {canUsePersonalRag && (
-            <Link href="/personal-rag"
-              className="flex flex-col items-center gap-3 rounded-lg border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
-              <User size={32} className="text-green-600" />
-              <span className="text-sm font-medium">个人 RAG 问答</span>
-              <span className="text-xs text-gray-400">个人知识库</span>
-            </Link>
-          )}
-
-          {/* Knowledge Bases - KBAdmin/Admin/SuperAdmin only */}
-          {hasPermission("manage_knowledge_base") && (
-            <Link href="/knowledge-bases"
-              className="flex flex-col items-center gap-3 rounded-lg border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
-              <Database size={32} className="text-purple-600" />
-              <span className="text-sm font-medium">知识库管理</span>
-              <span className="text-xs text-gray-400">管理与配置</span>
-            </Link>
-          )}
-
-          {/* Documents - KBAdmin/Admin/SuperAdmin only */}
-          {hasPermission("upload_document") && (
-            <Link href="/documents"
-              className="flex flex-col items-center gap-3 rounded-lg border bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
-              <FileText size={32} className="text-orange-600" />
-              <span className="text-sm font-medium">文档管理</span>
-              <span className="text-xs text-gray-400">上传与管理</span>
-            </Link>
-          )}
-        </div>
-
-        {/* Admin quick links */}
-        {(hasPermission("manage_user") || hasPermission("manage_model_config") || hasPermission("review_document") || hasPermission("manage_knowledge_base") || hasPermission("view_audit_logs")) && (
-          <div className="mt-10">
-            <h3 className="mb-4 text-sm font-semibold text-gray-500">管理后台</h3>
-            <div className="flex flex-wrap gap-2">
-              {hasPermission("manage_user") && (
-                <Link href="/users" className="rounded-full bg-white border px-4 py-1.5 text-xs text-gray-600 hover:bg-gray-50">用户管理</Link>
-              )}
-              {hasPermission("manage_user") && (
-                <Link href="/departments" className="rounded-full bg-white border px-4 py-1.5 text-xs text-gray-600 hover:bg-gray-50">部门管理</Link>
-              )}
-              {(hasPermission("manage_user")) && (
-                <Link href="/permissions" className="rounded-full bg-white border px-4 py-1.5 text-xs text-gray-600 hover:bg-gray-50">权限管理</Link>
-              )}
-              {hasPermission("review_document") && (
-                <Link href="/review" className="rounded-full bg-white border px-4 py-1.5 text-xs text-gray-600 hover:bg-gray-50">文档审核</Link>
-              )}
-              {hasPermission("manage_model_config") && (
-                <Link href="/model-configs" className="rounded-full bg-white border px-4 py-1.5 text-xs text-gray-600 hover:bg-gray-50">模型配置</Link>
-              )}
-              {hasPermission("manage_knowledge_base") && (
-                <Link href="/rag-configs" className="rounded-full bg-white border px-4 py-1.5 text-xs text-gray-600 hover:bg-gray-50">RAG参数</Link>
-              )}
-              {hasPermission("view_audit_logs") && (
-                <Link href="/audit-logs" className="rounded-full bg-white border px-4 py-1.5 text-xs text-gray-600 hover:bg-gray-50">审计日志</Link>
-              )}
-            </div>
-          </div>
-        )}
-      </main>
-    </div>
-  );
-}
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 export default function DashboardPage() {
+  const { user, hasPermission, canUsePersonalRag } = useAuth();
+
   return (
-    <AuthProvider>
-      <DashboardInner />
-    </AuthProvider>
+    <div className="max-w-5xl mx-auto">
+      {/* Welcome */}
+      <div className="mb-8">
+        <h2 className="text-2xl font-semibold text-[var(--color-text-primary)]">
+          欢迎回来，{user?.username}
+        </h2>
+        <div className="mt-2 flex items-center gap-2">
+          {user?.roles.map((role) => (
+            <Badge key={role} variant={role === "SuperAdmin" ? "danger" : role === "Admin" ? "warning" : "default"}>
+              {role}
+            </Badge>
+          ))}
+        </div>
+      </div>
+
+      {/* Quick entry cards */}
+      <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
+        快速入口
+      </h3>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {hasPermission("query_knowledge_base") && (
+          <Link href="/enterprise-rag">
+            <Card hover className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[var(--color-accent-soft)]">
+                <Building2 size={22} className="text-[var(--color-accent)]" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-text-primary)]">企业 RAG 问答</p>
+                <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">智能检索企业知识库，获取精准答案</p>
+              </div>
+            </Card>
+          </Link>
+        )}
+
+        {canUsePersonalRag && (
+          <Link href="/personal-rag">
+            <Card hover className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+                <User size={22} className="text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-text-primary)]">个人 RAG 问答</p>
+                <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">管理个人文档，构建专属知识库</p>
+              </div>
+            </Card>
+          </Link>
+        )}
+      </div>
+
+      {/* Admin tools */}
+      {(hasPermission("manage_user") || hasPermission("manage_knowledge_base") || hasPermission("review_document") || hasPermission("manage_model_config")) && (
+        <>
+          <h3 className="mt-10 mb-4 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
+            管理工具
+          </h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {hasPermission("manage_user") && (
+              <Link href="/users">
+                <Card hover className="p-4 text-center">
+                  <Users size={20} className="mx-auto mb-2 text-[var(--color-accent)]" />
+                  <p className="text-xs font-medium text-[var(--color-text-primary)]">用户管理</p>
+                </Card>
+              </Link>
+            )}
+            {hasPermission("manage_knowledge_base") && (
+              <Link href="/knowledge-bases">
+                <Card hover className="p-4 text-center">
+                  <Database size={20} className="mx-auto mb-2 text-[var(--color-accent)]" />
+                  <p className="text-xs font-medium text-[var(--color-text-primary)]">知识库</p>
+                </Card>
+              </Link>
+            )}
+            {hasPermission("upload_document") && (
+              <Link href="/documents">
+                <Card hover className="p-4 text-center">
+                  <FileText size={20} className="mx-auto mb-2 text-[var(--color-accent)]" />
+                  <p className="text-xs font-medium text-[var(--color-text-primary)]">文档管理</p>
+                </Card>
+              </Link>
+            )}
+            {hasPermission("review_document") && (
+              <Link href="/review">
+                <Card hover className="p-4 text-center">
+                  <CheckCircle size={20} className="mx-auto mb-2 text-[var(--color-accent)]" />
+                  <p className="text-xs font-medium text-[var(--color-text-primary)]">文档审核</p>
+                </Card>
+              </Link>
+            )}
+            {hasPermission("manage_model_config") && (
+              <Link href="/model-configs">
+                <Card hover className="p-4 text-center">
+                  <Cpu size={20} className="mx-auto mb-2 text-[var(--color-accent)]" />
+                  <p className="text-xs font-medium text-[var(--color-text-primary)]">模型配置</p>
+                </Card>
+              </Link>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
