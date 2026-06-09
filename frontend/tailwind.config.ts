@@ -8,12 +8,19 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        primary: {
-          50: "#eff6ff",
-          500: "#3b82f6",
-          600: "#2563eb",
-          700: "#1d4ed8",
+        accent: {
+          DEFAULT: "#1a1a2e",
+          soft: "#eef2ff",
         },
+        surface: "#ffffff",
+        border: "#e5e5e5",
+      },
+      fontFamily: {
+        sans: ['"Geist Sans"', '"PingFang SC"', '"Microsoft YaHei"', "sans-serif"],
+        mono: ['"Geist Mono"', "monospace"],
+      },
+      borderRadius: {
+        card: "12px",
       },
     },
   },
