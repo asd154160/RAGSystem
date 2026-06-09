@@ -1,7 +1,6 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
 
@@ -41,11 +40,10 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
-  const router = useRouter();
 
   useEffect(() => {
     if (!isAuthenticated()) {
-      router.push("/login");
+      setLoading(false);
       return;
     }
     apiGet<{
@@ -68,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [router]);
+  }, []);
 
   const hasRole = (...roles: string[]) => user?.roles.some(r => roles.includes(r)) ?? false;
   const hasPermission = (perm: string) => user?.permissions.includes(perm) ?? false;
