@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { apiGet, apiPost, apiFetch } from "@/lib/api";
 import { Check, X, FileText, ChevronDown, ChevronRight, Send } from "lucide-react";
 
@@ -94,11 +94,10 @@ export default function ReviewPage() {
   };
 
   if (loading) {
-    return <AdminLayout><div className="flex items-center justify-center py-20"><p className="text-gray-500">加载中...</p></div></AdminLayout>;
+    return <div className="flex items-center justify-center py-20"><p className="text-gray-500">加载中...</p></div>;
   }
 
   return (
-    <AdminLayout>
       <div className="mx-auto max-w-5xl">
         <h2 className="mb-6 text-lg font-semibold text-gray-800">文档审核</h2>
 
@@ -191,6 +190,5 @@ export default function ReviewPage() {
           </div>
         )}
       </div>
-    </AdminLayout>
   );
 }

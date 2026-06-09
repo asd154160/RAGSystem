@@ -2,8 +2,7 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { isAuthenticated } from "@/lib/auth";
-import { useAuth, AuthProvider } from "@/lib/auth-context";
+import { useAuth } from "@/lib/auth-context";
 import {
   LayoutDashboard, Users, Building2, Shield, Database, FileText,
   CheckCircle, LogOut, Menu, X, Cpu, Sliders, ScrollText, MessageSquare, BarChart3, Settings,
@@ -15,7 +14,7 @@ interface NavItem {
   label: string;
   icon: any;
   permission?: string;
-  permissions?: string[];  // any one of these is sufficient
+  permissions?: string[];
 }
 
 const navItems: NavItem[] = [
@@ -35,34 +34,33 @@ const navItems: NavItem[] = [
   { href: "/monitor", label: "系统监控", icon: Cpu, permission: "manage_knowledge_base" },
 ];
 
-function AdminLayoutInner({ children }: { children: React.ReactNode }) {
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading, hasPermission } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    if (!loading && !isAuthenticated()) {
-      router.push("/login");
-    }
-  }, [loading, router]);
+    setSidebarOpen(false);
+  }, [pathname]);
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <p className="text-gray-400">加载中...</p>
+      <div className="flex h-screen items-center justify-center bg-[var(--color-background)]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-[var(--color-accent)]/20 border-t-[var(--color-accent)] rounded-full animate-spin" />
+          <p className="text-sm text-[var(--color-text-secondary)]">加载中...</p>
+        </div>
       </div>
     );
   }
 
-  // Check if user can access current page
   const currentItem = navItems.find(n => pathname.startsWith(n.href));
   const canAccess = !currentItem || (
     (!currentItem.permission || hasPermission(currentItem.permission)) &&
     (!currentItem.permissions || currentItem.permissions.some(p => hasPermission(p)))
   );
 
-  // Filter visible nav items
   const visibleItems = navItems.filter(item => {
     if (item.permission && !hasPermission(item.permission)) return false;
     if (item.permissions && !item.permissions.some(p => hasPermission(p))) return false;
@@ -70,74 +68,96 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-[var(--color-background)]">
+      {/* Mobile overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 bg-black/30 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      <aside className={`fixed inset-y-0 left-0 z-50 w-60 transform border-r bg-white transition-transform lg:static lg:translate-x-0 ${
-        sidebarOpen ? "translate-x-0" : "-translate-x-full"
-      }`}>
-        <div className="flex h-14 items-center justify-between border-b px-4">
-          <span className="text-sm font-bold text-gray-800">RAG 管理后台</span>
-          <button className="lg:hidden" onClick={() => setSidebarOpen(false)}><X size={20} /></button>
+      {/* Sidebar */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-60 transform border-r border-[var(--color-border)] bg-white transition-transform lg:static lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex h-14 items-center justify-between border-b border-[var(--color-border)] px-5">
+          <span className="text-sm font-semibold tracking-wide text-[var(--color-text-primary)]">
+            RAG 管理后台
+          </span>
+          <button className="lg:hidden rounded-lg p-1 text-gray-400 hover:bg-gray-50" onClick={() => setSidebarOpen(false)}>
+            <X size={18} />
+          </button>
         </div>
-        <nav className="space-y-1 p-3">
+
+        <nav className="flex-1 overflow-y-auto space-y-0.5 p-3">
           {visibleItems.map((item) => {
             const active = pathname.startsWith(item.href);
             return (
-              <Link key={item.href} href={item.href}
-                className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
-                  active ? "bg-blue-50 font-medium text-blue-700" : "text-gray-600 hover:bg-gray-100"
-                }`}>
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                  active
+                    ? "bg-[var(--color-accent-soft)] font-medium text-[var(--color-accent)]"
+                    : "text-[var(--color-text-secondary)] hover:bg-gray-50 hover:text-[var(--color-text-primary)]"
+                }`}
+              >
                 <item.icon size={18} />
                 {item.label}
               </Link>
             );
           })}
         </nav>
-        <div className="absolute bottom-0 left-0 right-0 border-t p-3">
-          <div className="mb-2 px-3 text-xs text-gray-400">
+
+        <div className="border-t border-[var(--color-border)] p-3">
+          <div className="mb-2 px-3 text-xs text-[var(--color-text-secondary)]">
             {user?.username} · {user?.roles.join(", ")}
           </div>
-          <Link href="/settings"
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-500 hover:bg-gray-100 mb-1">
+          <Link
+            href="/settings"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:bg-gray-50"
+          >
             <Settings size={16} /> 用户设置
           </Link>
-          <button onClick={() => { localStorage.removeItem("access_token"); router.push("/login"); }}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-500 hover:bg-gray-100">
+          <button
+            onClick={() => {
+              localStorage.removeItem("access_token");
+              localStorage.removeItem("refresh_token");
+              router.push("/login");
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:bg-gray-50"
+          >
             <LogOut size={16} /> 退出登录
           </button>
         </div>
       </aside>
 
+      {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 items-center gap-3 border-b bg-white px-4 lg:px-6">
-          <button className="lg:hidden" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
-          <span className="text-sm font-medium text-gray-600">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--color-border)] bg-white px-4 lg:px-6">
+          <button className="lg:hidden rounded-lg p-1 text-gray-500 hover:bg-gray-50" onClick={() => setSidebarOpen(true)}>
+            <Menu size={20} />
+          </button>
+          <span className="text-sm font-medium text-[var(--color-text-secondary)]">
             {currentItem?.label || "管理"}
           </span>
         </header>
         <main className="flex-1 overflow-auto p-6">
-          {canAccess ? children : (
+          {canAccess ? (
+            children
+          ) : (
             <div className="flex h-full items-center justify-center">
               <div className="text-center">
                 <Shield size={48} className="mx-auto mb-3 text-gray-300" />
-                <p className="text-gray-500">无权访问此页面</p>
-                <p className="mt-1 text-sm text-gray-400">需要权限：{currentItem?.permission || currentItem?.permissions?.join(" / ")}</p>
+                <p className="text-sm text-[var(--color-text-secondary)]">无权访问此页面</p>
+                <p className="mt-1 text-xs text-gray-400">
+                  需要权限：{currentItem?.permission || currentItem?.permissions?.join(" / ")}
+                </p>
               </div>
             </div>
           )}
         </main>
       </div>
     </div>
-  );
-}
-
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <AuthProvider>
-      <AdminLayoutInner>{children}</AdminLayoutInner>
-    </AuthProvider>
   );
 }

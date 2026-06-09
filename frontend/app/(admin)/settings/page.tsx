@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { useAuth } from "@/lib/auth-context";
 import { apiGet, apiPatch, apiPut } from "@/lib/api";
 import { Mail, Lock, Save, Eye, EyeOff } from "lucide-react";
@@ -77,8 +77,7 @@ export default function SettingsPage() {
   const inputCls = "w-full rounded-md border px-3 py-2 pr-10 text-sm focus:border-blue-400 focus:outline-none";
 
   return (
-    <AdminLayout>
-      <div className="mx-auto max-w-lg space-y-6">
+    <div className="mx-auto max-w-lg space-y-6">
         <h2 className="text-lg font-semibold text-gray-800">用户设置</h2>
 
         {/* Profile info */}
@@ -184,6 +183,5 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
-    </AdminLayout>
   );
 }

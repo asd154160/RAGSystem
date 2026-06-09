@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { Plus, Trash2, Save, Star, Cpu } from "lucide-react";
 
@@ -58,10 +58,9 @@ export default function ModelConfigsPage() {
       enabled: m.enabled, is_default: m.is_default });
   };
 
-  if (loading) return <AdminLayout><div className="p-8">加载中...</div></AdminLayout>;
+  if (loading) return <div className="p-8">加载中...</div>;
 
   return (
-    <AdminLayout>
       <div className="mx-auto max-w-5xl px-6 py-8">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-gray-800">模型配置</h2>
@@ -141,6 +140,5 @@ export default function ModelConfigsPage() {
           {models.length === 0 && <p className="py-8 text-center text-gray-400">暂无模型配置，当前使用 .env 配置</p>}
         </div>
       </div>
-    </AdminLayout>
   );
 }

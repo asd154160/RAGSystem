@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { apiGet, apiPost, apiDelete, apiPatch } from "@/lib/api";
 import { Plus, Trash2, X, Pencil, Check, Shield, ShieldOff } from "lucide-react";
 
@@ -171,11 +171,10 @@ export default function KnowledgeBasesPage() {
   // ── Render ──
 
   if (loading) {
-    return <AdminLayout><div className="flex items-center justify-center py-20"><p className="text-gray-500">加载中...</p></div></AdminLayout>;
+    return <div className="flex items-center justify-center py-20"><p className="text-gray-500">加载中...</p></div>;
   }
 
   return (
-    <AdminLayout>
       <div className="mx-auto max-w-4xl">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-800">知识库管理</h2>
@@ -407,6 +406,5 @@ export default function KnowledgeBasesPage() {
           </table>
         </div>
       </div>
-    </AdminLayout>
   );
 }

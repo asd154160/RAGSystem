@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { apiGet, apiPost, apiFetch, apiDelete, apiPatch } from "@/lib/api";
 import { Upload, FileText, Eye, Trash2, Pencil, Check, X, Send, RefreshCw, FileUp } from "lucide-react";
 
@@ -158,11 +158,10 @@ export default function DocumentsPage() {
   };
 
   if (loading) {
-    return <AdminLayout><div className="flex items-center justify-center py-20"><p className="text-gray-500">加载中...</p></div></AdminLayout>;
+    return <div className="flex items-center justify-center py-20"><p className="text-gray-500">加载中...</p></div>;
   }
 
   return (
-    <AdminLayout>
       <div className="mx-auto max-w-5xl">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-800">文档管理</h2>
@@ -245,6 +244,5 @@ export default function DocumentsPage() {
           </table>
         </div>
       </div>
-    </AdminLayout>
   );
 }

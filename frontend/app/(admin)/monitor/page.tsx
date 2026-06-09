@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { apiGet, apiPost } from "@/lib/api";
 import { Activity, Clock, AlertTriangle, Zap, RotateCw } from "lucide-react";
 
@@ -31,14 +31,13 @@ export default function MonitorPage() {
 
   useEffect(() => { loadMetrics(); const t = setInterval(loadMetrics, 5000); return () => clearInterval(t); }, []);
 
-  if (loading) return <AdminLayout><div className="p-8">加载中...</div></AdminLayout>;
-  if (!metrics) return <AdminLayout><div className="p-8">无法加载监控数据</div></AdminLayout>;
+  if (loading) return <div className="p-8">加载中...</div>;
+  if (!metrics) return <div className="p-8">无法加载监控数据</div>;
 
   const c = metrics.counters;
   const a = metrics.averages;
 
   return (
-    <AdminLayout>
       <div className="mx-auto max-w-5xl px-6 py-8">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-gray-800">系统监控</h2>
@@ -86,7 +85,6 @@ export default function MonitorPage() {
           </div>
         </div>
       </div>
-    </AdminLayout>
   );
 }
 

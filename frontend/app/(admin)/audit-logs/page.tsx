@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { apiGet } from "@/lib/api";
 import { ScrollText } from "lucide-react";
 
@@ -16,10 +16,9 @@ export default function AuditLogsPage() {
       .then(setLogs).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <AdminLayout><div className="p-8">加载中...</div></AdminLayout>;
+  if (loading) return <div className="p-8">加载中...</div>;
 
   return (
-    <AdminLayout>
       <div className="mx-auto max-w-5xl px-6 py-8">
         <h2 className="mb-6 text-xl font-semibold text-gray-800">审计日志</h2>
         <div className="overflow-x-auto rounded-lg border bg-white">
@@ -50,6 +49,5 @@ export default function AuditLogsPage() {
           {logs.length === 0 && <p className="py-8 text-center text-gray-400">暂无审计记录</p>}
         </div>
       </div>
-    </AdminLayout>
   );
 }

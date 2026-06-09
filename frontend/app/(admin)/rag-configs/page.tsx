@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { apiGet, apiPost, apiPatch } from "@/lib/api";
 import { Save, Database } from "lucide-react";
 
@@ -49,10 +49,9 @@ export default function RagConfigsPage() {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  if (loading) return <AdminLayout><div className="p-8">加载中...</div></AdminLayout>;
+  if (loading) return <div className="p-8">加载中...</div>;
 
   return (
-    <AdminLayout>
       <div className="mx-auto max-w-3xl px-6 py-8">
         <h2 className="mb-6 text-xl font-semibold text-gray-800">RAG 参数配置</h2>
 
@@ -91,7 +90,6 @@ export default function RagConfigsPage() {
           </div>
         )}
       </div>
-    </AdminLayout>
   );
 }
 

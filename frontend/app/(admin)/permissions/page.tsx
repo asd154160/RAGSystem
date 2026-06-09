@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { Plus, Trash2, Save, X, Shield, Key } from "lucide-react";
 
@@ -103,10 +103,9 @@ export default function PermissionsPage() {
     );
   };
 
-  if (loading) return <AdminLayout><div className="p-8">加载中...</div></AdminLayout>;
+  if (loading) return <div className="p-8">加载中...</div>;
 
   return (
-    <AdminLayout>
       <div className="mx-auto max-w-4xl px-6 py-8">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-gray-800">权限管理</h2>
@@ -251,6 +250,5 @@ export default function PermissionsPage() {
           ))}
         </div>
       </div>
-    </AdminLayout>
   );
 }

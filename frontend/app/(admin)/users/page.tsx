@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import type { User } from "@/types";
 import { Plus, Trash2, X, Save, Edit3 } from "lucide-react";
@@ -119,11 +119,10 @@ export default function UsersPage() {
   }
 
   if (loading) {
-    return <AdminLayout><div className="flex items-center justify-center py-20"><p className="text-gray-500">加载中...</p></div></AdminLayout>;
+    return <div className="flex items-center justify-center py-20"><p className="text-gray-500">加载中...</p></div>;
   }
 
   return (
-    <AdminLayout>
       <div className="mx-auto max-w-4xl">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-800">用户管理</h2>
@@ -301,6 +300,5 @@ export default function UsersPage() {
           </table>
         </div>
       </div>
-    </AdminLayout>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { apiGet } from "@/lib/api";
 import { MessageSquare, ThumbsUp, ThumbsDown, ChevronDown, ChevronRight, User, Bot } from "lucide-react";
 
@@ -74,10 +74,9 @@ export default function SessionsPage() {
     return content.length > 300 ? content.slice(0, 300) + "..." : content;
   };
 
-  if (loading) return <AdminLayout><div className="p-8">加载中...</div></AdminLayout>;
+  if (loading) return <div className="p-8">加载中...</div>;
 
   return (
-    <AdminLayout>
       <div className="mx-auto max-w-5xl px-6 py-8">
         <h2 className="mb-6 text-xl font-semibold text-gray-800">会话记录</h2>
 
@@ -164,6 +163,5 @@ export default function SessionsPage() {
           )}
         </div>
       </div>
-    </AdminLayout>
   );
 }

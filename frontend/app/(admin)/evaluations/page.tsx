@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import AdminLayout from "@/components/layout/admin-layout";
+
 import { apiGet, apiPost, apiDelete } from "@/lib/api";
 import { Play, Plus, Trash2, BarChart3, ChevronDown, ChevronRight, AlertCircle, CheckCircle, XCircle } from "lucide-react";
 
@@ -116,10 +116,9 @@ export default function EvaluationsPage() {
     }
   };
 
-  if (loading) return <AdminLayout><div className="p-8">加载中...</div></AdminLayout>;
+  if (loading) return <div className="p-8">加载中...</div>;
 
   return (
-    <AdminLayout>
       <div className="mx-auto max-w-5xl px-6 py-8">
         <h2 className="mb-6 text-xl font-semibold text-gray-800">RAG 评测</h2>
 
@@ -288,6 +287,5 @@ export default function EvaluationsPage() {
           {runs.length === 0 && <p className="py-8 text-center text-sm text-gray-400">暂无评测记录，创建评测集后点击"运行"开始</p>}
         </div>
       </div>
-    </AdminLayout>
   );
 }
