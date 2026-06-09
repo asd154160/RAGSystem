@@ -5,6 +5,9 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { apiGet, apiPatch, apiPut } from "@/lib/api";
 import { Mail, Lock, Save, Eye, EyeOff } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 interface Profile {
   id: string;
@@ -74,114 +77,147 @@ export default function SettingsPage() {
     }
   }
 
-  const inputCls = "w-full rounded-md border px-3 py-2 pr-10 text-sm focus:border-blue-400 focus:outline-none";
+  const passwordInputCls =
+    "w-full rounded-lg border bg-white px-3 py-2.5 pr-10 text-sm placeholder:text-gray-400 transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20 border-[var(--color-border)] focus:border-[var(--color-accent)]";
 
   return (
-    <div className="mx-auto max-w-lg space-y-6">
-        <h2 className="text-lg font-semibold text-gray-800">用户设置</h2>
+    <div className="mx-auto max-w-lg space-y-6 px-6 py-8">
+      <h2 className="text-xl font-semibold text-[var(--color-text-primary)] mb-6">用户设置</h2>
 
-        {/* Profile info */}
-        <div className="rounded-lg border bg-white p-5 shadow-sm">
-          <h3 className="mb-3 text-sm font-medium text-gray-600">账号信息</h3>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-500">用户名</span>
-              <span className="font-medium">{profile?.username}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">邮箱</span>
-              <span className="font-medium">{profile?.email}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">部门</span>
-              <span className="font-medium">
-                {profile?.departments?.length
-                  ? profile.departments.map(d => d.name).join(", ")
-                  : <span className="text-gray-400">-</span>}
-              </span>
-            </div>
+      {/* Profile info */}
+      <Card>
+        <h3 className="mb-3 text-sm font-medium text-[var(--color-text-secondary)]">账号信息</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-[var(--color-text-secondary)]">用户名</span>
+            <span className="font-medium text-[var(--color-text-primary)]">{profile?.username}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[var(--color-text-secondary)]">邮箱</span>
+            <span className="font-medium text-[var(--color-text-primary)]">{profile?.email}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[var(--color-text-secondary)]">部门</span>
+            <span className="font-medium text-[var(--color-text-primary)]">
+              {profile?.departments?.length
+                ? profile.departments.map(d => d.name).join(", ")
+                : <span className="text-[var(--color-text-secondary)]">-</span>}
+            </span>
           </div>
         </div>
+      </Card>
 
-        {/* Email change */}
-        <div className="rounded-lg border bg-white p-5 shadow-sm">
-          <h3 className="mb-4 flex items-center gap-2 text-sm font-medium text-gray-600">
-            <Mail size={16} /> 修改邮箱
-          </h3>
-          <div className="space-y-3">
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">新邮箱</label>
-              <input type="email" className={inputCls} placeholder="new@example.com"
-                value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+      {/* Email change */}
+      <Card>
+        <h3 className="mb-4 flex items-center gap-2 text-sm font-medium text-[var(--color-text-secondary)]">
+          <Mail size={16} /> 修改邮箱
+        </h3>
+        <div className="space-y-3">
+          <Input
+            type="email"
+            label="新邮箱"
+            placeholder="new@example.com"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+          />
+          <div>
+            <label className="block mb-1.5 text-sm font-medium text-[var(--color-text-primary)]">当前密码</label>
+            <div className="relative">
+              <input
+                type={showEmailPwd ? "text" : "password"}
+                className={passwordInputCls}
+                placeholder="输入当前密码以验证身份"
+                value={emailPassword}
+                onChange={(e) => setEmailPassword(e.target.value)}
+              />
+              <button
+                onClick={() => setShowEmailPwd(!showEmailPwd)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+              >
+                {showEmailPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">当前密码</label>
-              <div className="relative">
-                <input type={showEmailPwd ? "text" : "password"} className={inputCls}
-                  placeholder="输入当前密码以验证身份"
-                  value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} />
-                <button onClick={() => setShowEmailPwd(!showEmailPwd)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                  {showEmailPwd ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-            {emailMsg && <p className="text-sm text-green-600">{emailMsg}</p>}
-            {emailErr && <p className="text-sm text-red-600">{emailErr}</p>}
-            <button onClick={handleEmailChange}
-              className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
-              <Save size={14} /> 保存邮箱
-            </button>
           </div>
+          {emailMsg && (
+            <div className="text-sm bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg">{emailMsg}</div>
+          )}
+          {emailErr && (
+            <div className="text-sm bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg">{emailErr}</div>
+          )}
+          <Button onClick={handleEmailChange}>
+            <Save size={14} /> 保存邮箱
+          </Button>
         </div>
+      </Card>
 
-        {/* Password change */}
-        <div className="rounded-lg border bg-white p-5 shadow-sm">
-          <h3 className="mb-4 flex items-center gap-2 text-sm font-medium text-gray-600">
-            <Lock size={16} /> 修改密码
-          </h3>
-          <div className="space-y-3">
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">旧密码</label>
-              <div className="relative">
-                <input type={showOldPwd ? "text" : "password"} className={inputCls}
-                  value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} />
-                <button onClick={() => setShowOldPwd(!showOldPwd)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                  {showOldPwd ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
+      {/* Password change */}
+      <Card>
+        <h3 className="mb-4 flex items-center gap-2 text-sm font-medium text-[var(--color-text-secondary)]">
+          <Lock size={16} /> 修改密码
+        </h3>
+        <div className="space-y-3">
+          <div>
+            <label className="block mb-1.5 text-sm font-medium text-[var(--color-text-primary)]">旧密码</label>
+            <div className="relative">
+              <input
+                type={showOldPwd ? "text" : "password"}
+                className={passwordInputCls}
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+              />
+              <button
+                onClick={() => setShowOldPwd(!showOldPwd)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+              >
+                {showOldPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">新密码（至少6位）</label>
-              <div className="relative">
-                <input type={showNewPwd ? "text" : "password"} className={inputCls}
-                  value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-                <button onClick={() => setShowNewPwd(!showNewPwd)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                  {showNewPwd ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">确认新密码</label>
-              <div className="relative">
-                <input type={showConfirmPwd ? "text" : "password"} className={inputCls}
-                  value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
-                <button onClick={() => setShowConfirmPwd(!showConfirmPwd)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                  {showConfirmPwd ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-            {pwdMsg && <p className="text-sm text-green-600">{pwdMsg}</p>}
-            {pwdErr && <p className="text-sm text-red-600">{pwdErr}</p>}
-            <button onClick={handlePasswordChange}
-              className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
-              <Save size={14} /> 更新密码
-            </button>
           </div>
+          <div>
+            <label className="block mb-1.5 text-sm font-medium text-[var(--color-text-primary)]">新密码（至少6位）</label>
+            <div className="relative">
+              <input
+                type={showNewPwd ? "text" : "password"}
+                className={passwordInputCls}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+              <button
+                onClick={() => setShowNewPwd(!showNewPwd)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+              >
+                {showNewPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block mb-1.5 text-sm font-medium text-[var(--color-text-primary)]">确认新密码</label>
+            <div className="relative">
+              <input
+                type={showConfirmPwd ? "text" : "password"}
+                className={passwordInputCls}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+              <button
+                onClick={() => setShowConfirmPwd(!showConfirmPwd)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+              >
+                {showConfirmPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+          {pwdMsg && (
+            <div className="text-sm bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg">{pwdMsg}</div>
+          )}
+          {pwdErr && (
+            <div className="text-sm bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg">{pwdErr}</div>
+          )}
+          <Button onClick={handlePasswordChange}>
+            <Save size={14} /> 更新密码
+          </Button>
         </div>
-      </div>
+      </Card>
+    </div>
   );
 }

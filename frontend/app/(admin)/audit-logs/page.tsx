@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { ScrollText } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface AuditLog { id: string; username: string; action: string; detail: string | null; created_at: string | null; }
 
@@ -16,38 +18,49 @@ export default function AuditLogsPage() {
       .then(setLogs).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="p-8">加载中...</div>;
+  if (loading) return (
+    <div className="flex h-screen items-center justify-center bg-[var(--color-background)]">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-2 border-[var(--color-accent)]/20 border-t-[var(--color-accent)] rounded-full animate-spin" />
+        <p className="text-sm text-[var(--color-text-secondary)]">加载中...</p>
+      </div>
+    </div>
+  );
 
   return (
-      <div className="mx-auto max-w-5xl px-6 py-8">
-        <h2 className="mb-6 text-xl font-semibold text-gray-800">审计日志</h2>
-        <div className="overflow-x-auto rounded-lg border bg-white">
+    <div className="mx-auto max-w-5xl px-6 py-8">
+      <h2 className="text-xl font-semibold text-[var(--color-text-primary)] mb-6">审计日志</h2>
+
+      {logs.length === 0 ? (
+        <EmptyState icon={ScrollText} title="暂无审计记录" />
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-white">
           <table className="w-full text-sm">
-            <thead className="border-b bg-gray-50">
+            <thead className="border-b border-[var(--color-border)]">
               <tr>
-                <th className="px-4 py-3 text-left text-gray-600">时间</th>
-                <th className="px-4 py-3 text-left text-gray-600">用户</th>
-                <th className="px-4 py-3 text-left text-gray-600">操作</th>
-                <th className="px-4 py-3 text-left text-gray-600">详情</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--color-text-secondary)]">时间</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--color-text-secondary)]">用户</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--color-text-secondary)]">操作</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--color-text-secondary)]">详情</th>
               </tr>
             </thead>
             <tbody>
               {logs.map(l => (
-                <tr key={l.id} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">
+                <tr key={l.id} className="border-b border-[var(--color-border)] hover:bg-gray-50">
+                  <td className="px-4 py-2.5 text-[var(--color-text-secondary)] whitespace-nowrap">
                     {l.created_at ? new Date(l.created_at).toLocaleString("zh-CN") : "-"}
                   </td>
-                  <td className="px-4 py-2.5">{l.username || "-"}</td>
+                  <td className="px-4 py-2.5 text-[var(--color-text-primary)]">{l.username || "-"}</td>
                   <td className="px-4 py-2.5">
-                    <span className="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">{l.action}</span>
+                    <Badge variant="default">{l.action}</Badge>
                   </td>
-                  <td className="px-4 py-2.5 text-gray-500 max-w-xs truncate">{l.detail || "-"}</td>
+                  <td className="px-4 py-2.5 text-[var(--color-text-secondary)] max-w-xs truncate">{l.detail || "-"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {logs.length === 0 && <p className="py-8 text-center text-gray-400">暂无审计记录</p>}
         </div>
-      </div>
+      )}
+    </div>
   );
 }
