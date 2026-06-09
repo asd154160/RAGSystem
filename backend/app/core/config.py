@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     minio_secret_key: str = "minioadmin123"
     minio_bucket: str = "rag-documents"
     minio_secure: bool = False
+    minio_region: str = "us-east-1"
+    minio_public_endpoint: str = "localhost:9000"
 
     # JWT — must be set via JWT_SECRET_KEY env var
     jwt_secret_key: str = ""

@@ -120,10 +120,32 @@ export default function DocumentsPage() {
     e.target.value = "";
   }
 
+  function escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
   async function handlePreview(docId: string) {
     try {
-      const data = await apiGet<{ url: string }>(`/api/documents/${docId}/preview`);
-      window.open(data.url, "_blank");
+      const res = await apiFetch(`/api/documents/${docId}/preview/file`);
+      if (!res.ok) throw new Error(`Preview failed: ${res.status}`);
+      const contentType = res.headers.get("Content-Type") || "application/octet-stream";
+
+      let blob: Blob;
+      if (contentType.includes("text/plain")) {
+        const text = await res.text();
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:system-ui,-apple-system,sans-serif;max-width:960px;margin:2rem auto;padding:0 1.5rem;line-height:1.7;white-space:pre-wrap;word-break:break-all;color:#1a1a1a;}</style></head><body>${escapeHtml(text)}</body></html>`;
+        blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      } else {
+        const buffer = await res.arrayBuffer();
+        blob = new Blob([buffer], { type: contentType });
+      }
+
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
     } catch (err) { console.error(err); }
   }
 

@@ -2,6 +2,7 @@ import hashlib
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi.responses import Response
 from sqlalchemy import select, delete as sql_delete, text
 from sqlalchemy.orm import selectinload
 
@@ -280,6 +281,35 @@ async def preview_document(
     latest = doc.versions[0]
     url = minio_service.get_presigned_url(latest.file_path, expires=3600)
     return {"url": url, "file_type": doc.file_type, "file_name": doc.title}
+
+
+_MEDIA_TYPES = {
+    "pdf": "application/pdf",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "txt": "text/plain;charset=utf-8",
+    "md": "text/plain;charset=utf-8",
+}
+
+
+@router.get("/{doc_id}/preview/file")
+async def preview_document_file(
+    doc_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Document).options(selectinload(Document.versions)).where(Document.id == doc_id)
+    )
+    doc = result.scalar_one_or_none()
+    if not doc or not doc.versions:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
+
+    latest = doc.versions[0]
+    content = minio_service.get_file(latest.file_path)
+    media_type = _MEDIA_TYPES.get(doc.file_type, "application/octet-stream")
+    return Response(content=content, media_type=media_type)
 
 
 @router.post("/{doc_id}/parse")
