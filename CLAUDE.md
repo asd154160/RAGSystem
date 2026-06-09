@@ -116,9 +116,9 @@ docker compose exec backend python scripts/migrate_milvus_schema.py --force     
 
 ```
 ┌─ Frontend (Next.js 14) ──────────────────────────────────┐
-│  App Router: /login /enterprise-rag /personal-rag         │
-│  lib/api.ts (JWT注入)  lib/stream.ts (SSE流式)            │
-│  权限: useAuth() → hasPermission / canUsePersonalRag │
+│  App Router 路由组: (public) (chat) (admin)               │
+│  lib/api.ts (JWT注入) lib/stream.ts (SSE流式)             │
+│  权限: AuthProvider + ProtectedRoute + useAuth()          │
 └──────────────────────────────┬────────────────────────────┘
                                │ SSE / REST + JWT Bearer
 ┌─ Backend (FastAPI) ──────────┼────────────────────────────┐

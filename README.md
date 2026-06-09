@@ -239,38 +239,52 @@ RAGSystem/
 │   │   │   └── evaluation_service.py   # RAG 评测逻辑
 │   │   ├── schemas/                    # Pydantic 请求/响应模型
 │   │   └── workers/                    # 异步任务 Worker
-│   │       └── main.py                 # 文档解析 + Embedding（轮询处理）
+│   │       └── main.py                 # 文档解析 + Embedding
 │   ├── requirements.txt
 │   ├── requirements-docker.txt
 │   └── Dockerfile
 ├── frontend/
-│   ├── app/                            # 16 个页面路由
-│   │   ├── login/                      # 登录
-│   │   ├── dashboard/                  # 工作台
-│   │   ├── enterprise-rag/             # 企业 RAG 聊天页
-│   │   ├── personal-rag/               # 个人 RAG 聊天页
-│   │   ├── users/                      # 用户管理（含部门选择）
-│   │   ├── departments/                # 部门管理（含成员管理）
-│   │   ├── permissions/                # 角色权限管理
-│   │   ├── knowledge-bases/            # 知识库管理（含权限分配）
-│   │   ├── documents/                  # 文档管理
-│   │   ├── review/                     # 文档审核
-│   │   ├── model-configs/              # 模型配置
-│   │   ├── rag-configs/                # RAG 参数配置
-│   │   ├── audit-logs/                 # 审计日志
-│   │   ├── sessions/                   # 会话记录（含消息反馈）
-│   │   ├── evaluations/                # RAG 评测
-│   │   └── monitor/                    # 系统监控
+│   ├── app/
+│   │   ├── layout.tsx                  # 根布局（Providers: AuthProvider + ToastProvider）
+│   │   ├── providers.tsx               # AuthProvider + ToastProvider 组合
+│   │   ├── globals.css                 # CSS 变量 + Tailwind + 字体
+│   │   ├── (public)/                   # 公开路由组（无需登录）
+│   │   │   ├── layout.tsx              # 居中卡片布局
+│   │   │   ├── login/page.tsx
+│   │   │   └── register/page.tsx
+│   │   ├── (chat)/                     # 聊天路由组（需登录）
+│   │   │   ├── layout.tsx              # ProtectedRoute 守卫
+│   │   │   ├── enterprise-rag/page.tsx
+│   │   │   └── personal-rag/page.tsx
+│   │   └── (admin)/                    # 管理后台路由组（需登录 + 权限）
+│   │       ├── layout.tsx              # AdminLayout + ProtectedRoute
+│   │       ├── dashboard/              # 工作台
+│   │       ├── users/                  # 用户管理
+│   │       ├── departments/            # 部门管理
+│   │       ├── permissions/            # 角色权限管理
+│   │       ├── knowledge-bases/        # 知识库管理
+│   │       ├── documents/              # 文档管理
+│   │       ├── review/                 # 文档审核
+│   │       ├── sessions/               # 会话记录
+│   │       ├── model-configs/          # 模型配置
+│   │       ├── rag-configs/            # RAG 参数配置
+│   │       ├── audit-logs/             # 审计日志
+│   │       ├── evaluations/            # RAG 评测
+│   │       ├── monitor/                # 系统监控
+│   │       └── settings/               # 系统设置
 │   ├── components/
-│   │   ├── chat/                       # 聊天面板、来源卡片、会话列表、ThinkBlock
-│   │   └── layout/                     # 管理后台布局（权限过滤侧栏）
-│   ├── lib/                            # API 客户端（JWT自动注入+刷新）、认证、SSE 解析
+│   │   ├── ui/                         # UI 组件库（Button/Input/Modal/Toast/Card/Badge 等）
+│   │   ├── chat/                       # ChatPanel / SessionList / SourceCard / ThinkBlock
+│   │   └── layout/                     # AdminLayout / ProtectedRoute
+│   ├── lib/                            # api.ts / auth.ts / auth-context.tsx / stream.ts
 │   └── types/                          # TypeScript 类型定义
+├── scripts/                            # 部署脚本 + 备份/恢复/迁移
 ├── models/                             # bge-m3 + bge-reranker-v2-m3 模型文件（gitignore）
+├── backups/                            # 备份输出目录
+├── logs/                               # 应用日志
 ├── docker-compose.yml
 ├── .env.example
 ├── CLAUDE.md                           # AI 辅助开发参考
-├── 思路.md                             # 系统代码流转路径详解
 └── README.md
 ```
 
