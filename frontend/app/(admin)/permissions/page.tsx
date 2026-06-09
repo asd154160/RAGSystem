@@ -227,8 +227,8 @@ export default function PermissionsPage() {
                             variant="default"
                             className={
                               assigned
-                                ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border border-[var(--color-accent)]/20"
-                                : ""
+                                ? "bg-[var(--color-accent)] text-white border border-[var(--color-accent)]"
+                                : "bg-gray-50 text-[var(--color-text-secondary)] border border-[var(--color-border)]"
                             }
                           >
                             {PERMISSION_LABELS[p.code] || p.code}
@@ -307,8 +307,8 @@ export default function PermissionsPage() {
                       variant="default"
                       className={
                         selected
-                          ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border border-[var(--color-accent)]/20"
-                          : ""
+                          ? "bg-[var(--color-accent)] text-white border border-[var(--color-accent)]"
+                          : "bg-gray-50 text-[var(--color-text-secondary)] border border-[var(--color-border)]"
                       }
                     >
                       {PERMISSION_LABELS[p.code] || p.code}
