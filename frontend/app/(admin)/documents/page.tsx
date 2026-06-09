@@ -4,6 +4,10 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 
 import { apiGet, apiPost, apiFetch, apiDelete, apiPatch } from "@/lib/api";
 import { Upload, FileText, Eye, Trash2, Pencil, Check, X, Send, RefreshCw, FileUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface DocumentItem {
   id: string;
@@ -25,6 +29,21 @@ const TYPE_ICONS: Record<string, string> = {
   pdf: "PDF", docx: "DOC", xlsx: "XLS", pptx: "PPT", txt: "TXT", md: "MD",
 };
 
+function statusVariant(s: string) {
+  if (s === "published" || s === "approved") return "success" as const;
+  if (s === "failed") return "danger" as const;
+  if (s === "pending_review" || s === "parsing" || s === "parsed") return "warning" as const;
+  return "default" as const;
+}
+
+function statusLabel(s: string) {
+  const map: Record<string, string> = {
+    uploaded: "已上传", parsing: "解析中", parsed: "已解析",
+    pending_review: "待审核", approved: "已审核", published: "已发布", failed: "失败",
+  };
+  return map[s] || s;
+}
+
 export default function DocumentsPage() {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
@@ -32,6 +51,8 @@ export default function DocumentsPage() {
   const [selectedKb, setSelectedKb] = useState<string>("");
   const [uploading, setUploading] = useState(false);
   const [replacingId, setReplacingId] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDocs = useCallback(async () => {
@@ -67,7 +88,7 @@ export default function DocumentsPage() {
       } as RequestInit);
       if (res.ok) fetchDocs();
     } catch (err) { console.error(err); }
-    finally { setUploading(false); }
+    finally { setUploading(false); e.target.value = ""; }
   }
 
   function triggerReplace(docId: string) {
@@ -101,7 +122,7 @@ export default function DocumentsPage() {
 
   async function handlePreview(docId: string) {
     try {
-      const data = await apiGet<{url: string}>(`/api/documents/${docId}/preview`);
+      const data = await apiGet<{ url: string }>(`/api/documents/${docId}/preview`);
       window.open(data.url, "_blank");
     } catch (err) { console.error(err); }
   }
@@ -152,35 +173,65 @@ export default function DocumentsPage() {
     setEditTitle("");
   }
 
-  const statusLabel = (s: string) => {
-    const map: Record<string, string> = { uploaded: "已上传", parsing: "解析中", parsed: "已解析", pending_review: "待审核", approved: "已审核", published: "已发布", failed: "失败" };
-    return map[s] || s;
-  };
-
   if (loading) {
-    return <div className="flex items-center justify-center py-20"><p className="text-gray-500">加载中...</p></div>;
+    return (
+      <div className="flex items-center justify-center py-20">
+        <p className="text-[var(--color-text-secondary)]">加载中...</p>
+      </div>
+    );
   }
 
   return (
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-800">文档管理</h2>
-          <div className="flex items-center gap-3">
-            <select className="rounded-md border px-3 py-2 text-sm" value={selectedKb} onChange={(e) => setSelectedKb(e.target.value)}>
-              {kbs.map((kb) => <option key={kb.id} value={kb.id}>{kb.name}</option>)}
-            </select>
-            <label className="flex cursor-pointer items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
-              <Upload size={16} />
-              {uploading ? "上传中..." : "上传文档"}
-              <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
-            </label>
-            <input ref={replaceInputRef} type="file" className="hidden" onChange={handleReplace} disabled={uploading} />
-          </div>
+    <div className="mx-auto max-w-5xl">
+      {/* Header */}
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">文档管理</h2>
+        <div className="flex items-center gap-3">
+          <select
+            className="rounded-lg border border-[var(--color-border)] bg-white px-3 py-2 text-sm text-[var(--color-text-primary)]"
+            value={selectedKb}
+            onChange={(e) => setSelectedKb(e.target.value)}
+          >
+            {kbs.map((kb) => (
+              <option key={kb.id} value={kb.id}>{kb.name}</option>
+            ))}
+          </select>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleUpload}
+            disabled={uploading}
+          />
+          <Button
+            variant="primary"
+            loading={uploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload size={16} />
+            上传文档
+          </Button>
+          <input
+            ref={replaceInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleReplace}
+            disabled={uploading}
+          />
         </div>
+      </div>
 
-        <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
+      {/* Table or Empty State */}
+      {docs.length === 0 ? (
+        <EmptyState
+          icon={FileText}
+          title="暂无文档"
+          description="请选择知识库并上传文档"
+        />
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-white shadow-sm">
           <table className="w-full text-sm">
-            <thead className="border-b bg-gray-50 text-left text-gray-600">
+            <thead className="border-b border-[var(--color-border)] bg-[var(--color-background)] text-left text-[var(--color-text-secondary)]">
               <tr>
                 <th className="px-4 py-3 font-medium">文件名</th>
                 <th className="px-4 py-3 font-medium">类型</th>
@@ -190,59 +241,83 @@ export default function DocumentsPage() {
                 <th className="px-4 py-3 font-medium text-right">操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y text-gray-700">
+            <tbody className="divide-y divide-[var(--color-border)] text-[var(--color-text-primary)]">
               {docs.map((doc) => (
-                <tr key={doc.id} className="hover:bg-gray-50">
+                <tr key={doc.id} className="hover:bg-[var(--color-background)]">
                   <td className="px-4 py-3 font-medium">
                     {editingId === doc.id ? (
-                      <input
-                        className="w-full rounded border px-2 py-1 text-sm"
-                        value={editTitle}
-                        onChange={(e) => setEditTitle(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") saveEdit(doc.id); if (e.key === "Escape") cancelEdit(); }}
-                        autoFocus
-                      />
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveEdit(doc.id);
+                            if (e.key === "Escape") cancelEdit();
+                          }}
+                          autoFocus
+                        />
+                        <Button variant="ghost" size="sm" onClick={() => saveEdit(doc.id)} className="!text-emerald-600">
+                          <Check size={16} />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={cancelEdit}>
+                          <X size={16} />
+                        </Button>
+                      </div>
                     ) : (
-                      <span className="flex items-center gap-2"><FileText size={16} className="text-gray-400" />{doc.title}</span>
+                      <span className="flex items-center gap-2">
+                        <FileText size={16} className="text-[var(--color-text-secondary)]" />
+                        {doc.title}
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-mono">{TYPE_ICONS[doc.file_type] || doc.file_type.toUpperCase()}</span>
+                    <Badge variant="default">
+                      {TYPE_ICONS[doc.file_type] || doc.file_type.toUpperCase()}
+                    </Badge>
                   </td>
                   <td className="px-4 py-3">v{doc.latest_version}</td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${doc.status === "published" ? "bg-green-50 text-green-700" : doc.status === "failed" ? "bg-red-50 text-red-700" : "bg-yellow-50 text-yellow-700"}`}>{statusLabel(doc.status)}</span>
+                    <Badge variant={statusVariant(doc.status)}>
+                      {statusLabel(doc.status)}
+                    </Badge>
                   </td>
-                  <td className="px-4 py-3">{new Date(doc.created_at).toLocaleDateString("zh-CN")}</td>
+                  <td className="px-4 py-3">
+                    {new Date(doc.created_at).toLocaleDateString("zh-CN")}
+                  </td>
                   <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {editingId === doc.id ? (
-                        <>
-                          <button onClick={() => saveEdit(doc.id)} className="text-green-500 hover:text-green-700" title="保存"><Check size={16} /></button>
-                          <button onClick={cancelEdit} className="text-gray-400 hover:text-gray-600" title="取消"><X size={16} /></button>
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={() => handlePreview(doc.id)} className="text-blue-500 hover:text-blue-700" title="预览"><Eye size={16} /></button>
-                          <button onClick={() => triggerReplace(doc.id)} className="text-orange-500 hover:text-orange-700" title="更新版本"><FileUp size={16} /></button>
-                          {doc.status === "approved" && (
-                            <button onClick={() => handlePublish(doc.id)} className="text-green-500 hover:text-green-700" title="发布"><Send size={16} /></button>
-                          )}
-                          {doc.status === "published" && (
-                            <button onClick={() => handleIndex(doc.id)} className="text-purple-500 hover:text-purple-700" title="重建索引"><RefreshCw size={16} /></button>
-                          )}
-                          <button onClick={() => startEdit(doc)} className="text-gray-400 hover:text-gray-600" title="重命名"><Pencil size={16} /></button>
-                          <button onClick={() => handleDelete(doc.id)} className="text-red-400 hover:text-red-600" title="删除"><Trash2 size={16} /></button>
-                        </>
-                      )}
-                    </div>
+                    {editingId !== doc.id && (
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => handlePreview(doc.id)} title="预览">
+                          <Eye size={16} />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => triggerReplace(doc.id)} title="更新版本">
+                          <FileUp size={16} />
+                        </Button>
+                        {doc.status === "approved" && (
+                          <Button variant="ghost" size="sm" onClick={() => handlePublish(doc.id)} className="!text-emerald-600" title="发布">
+                            <Send size={16} />
+                          </Button>
+                        )}
+                        {doc.status === "published" && (
+                          <Button variant="ghost" size="sm" onClick={() => handleIndex(doc.id)} title="重建索引">
+                            <RefreshCw size={16} />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="sm" onClick={() => startEdit(doc)} title="重命名">
+                          <Pencil size={16} />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleDelete(doc.id)} className="!text-red-500" title="删除">
+                          <Trash2 size={16} />
+                        </Button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
-              {docs.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">暂无文档，请上传</td></tr>}
             </tbody>
           </table>
         </div>
-      </div>
+      )}
+    </div>
   );
 }
