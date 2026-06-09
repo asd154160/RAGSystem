@@ -2,8 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { isAuthenticated } from "@/lib/auth";
-import { useAuth, AuthProvider } from "@/lib/auth-context";
+import { useAuth } from "@/lib/auth-context";
 import { apiGet, apiPost, apiDelete } from "@/lib/api";
 import { streamChat } from "@/lib/stream";
 import { ChatMessage, Conversation, RagSource } from "@/types";
@@ -116,7 +115,6 @@ function PersonalRagInner() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isAuthenticated()) { router.push("/login"); return; }
     if (!canUsePersonalRag) { router.push("/dashboard"); return; }
     setReady(true);
     loadSessions();
@@ -395,10 +393,4 @@ function PersonalRagInner() {
   );
 }
 
-export default function PersonalRagPage() {
-  return (
-    <AuthProvider>
-      <PersonalRagInner />
-    </AuthProvider>
-  );
-}
+export default PersonalRagInner;

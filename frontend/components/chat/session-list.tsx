@@ -13,7 +13,7 @@ interface Props {
 
 export default function SessionList({ sessions, activeId, onSelect, onNew, onDelete }: Props) {
   return (
-    <div className="flex h-full flex-col border-r bg-gray-50">
+    <div className="flex h-full flex-col border-r bg-[var(--color-background)]">
       <div className="flex items-center justify-between border-b px-3 py-3">
         <span className="text-sm font-semibold text-gray-700">会话列表</span>
         <button
@@ -34,8 +34,8 @@ export default function SessionList({ sessions, activeId, onSelect, onNew, onDel
               onClick={() => onSelect(s.id)}
               className={`group flex cursor-pointer items-center justify-between px-3 py-2.5 text-sm transition-colors ${
                 activeId === s.id
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-gray-600 hover:bg-gray-100"
+                  ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                  : "text-gray-600 hover:bg-gray-50"
               }`}
             >
               <div className="flex min-w-0 items-center gap-2">

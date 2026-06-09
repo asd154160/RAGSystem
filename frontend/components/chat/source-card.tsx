@@ -14,7 +14,7 @@ export default function SourceCard({ sources, activeIndex, onHover }: Props) {
   if (sources.length === 0) return null;
 
   return (
-    <div className="flex h-full flex-col border-l bg-gray-50">
+    <div className="flex h-full flex-col border-l bg-[var(--color-background)]">
       <div className="border-b px-3 py-3">
         <span className="text-sm font-semibold text-gray-700">引用来源 ({sources.length})</span>
       </div>
@@ -51,11 +51,11 @@ function SourceItem({
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       className={`rounded-lg border bg-white p-3 text-xs transition-shadow ${
-        isActive ? "ring-2 ring-blue-400 shadow-md" : "shadow-sm"
+        isActive ? "ring-2 ring-[var(--color-accent)] shadow-md" : "shadow-sm"
       }`}
     >
       <div className="mb-1 flex items-center gap-1.5">
-        <span className="flex h-5 w-5 items-center justify-center rounded bg-blue-100 text-[10px] font-bold text-blue-600">
+        <span className="flex h-5 w-5 items-center justify-center rounded bg-[var(--color-accent-soft)] text-[10px] font-bold text-[var(--color-accent)]">
           {index + 1}
         </span>
         <span className="truncate font-medium text-gray-700">{source.document_name}</span>
@@ -68,7 +68,7 @@ function SourceItem({
         {source.page_no && <span>第 {source.page_no} 页</span>}
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-0.5 text-blue-500 hover:text-blue-600"
+          className="flex items-center gap-0.5 text-[var(--color-accent)] hover:opacity-80"
         >
           {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           {expanded ? "收起" : "原文"}

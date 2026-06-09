@@ -2,8 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { isAuthenticated } from "@/lib/auth";
-import { useAuth, AuthProvider } from "@/lib/auth-context";
+import { useAuth } from "@/lib/auth-context";
 import { apiGet, apiPost, apiDelete } from "@/lib/api";
 import { streamChat } from "@/lib/stream";
 import { ChatMessage, Conversation, RagSource } from "@/types";
@@ -38,7 +37,6 @@ function EnterpriseRagInner() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isAuthenticated()) { router.push("/login"); return; }
     if (!hasPermission("query_knowledge_base")) { router.push("/dashboard"); return; }
     setReady(true);
     loadSessions();
@@ -190,7 +188,7 @@ function EnterpriseRagInner() {
               <button onClick={() => router.push("/dashboard")} className="rounded p-1 text-gray-400 hover:text-gray-600" title="返回工作台">
                 <ArrowLeft size={16} />
               </button>
-              <Building2 size={18} className="text-blue-600" />
+              <Building2 size={18} className="text-[var(--color-accent)]" />
               <span className="text-sm font-semibold text-gray-800">企业 RAG</span>
             </div>
             <button
@@ -218,7 +216,7 @@ function EnterpriseRagInner() {
       <div className="flex flex-1 flex-col min-w-0">
         <div className="flex items-center justify-between border-b px-4 py-2 md:hidden">
           <div className="flex items-center gap-2">
-            <Building2 size={18} className="text-blue-600" />
+            <Building2 size={18} className="text-[var(--color-accent)]" />
             <span className="text-sm font-semibold">企业 RAG</span>
           </div>
           <button onClick={() => setShowSources(!showSources)} className="rounded p-1 text-gray-500">
@@ -249,10 +247,4 @@ function EnterpriseRagInner() {
   );
 }
 
-export default function EnterpriseRagPage() {
-  return (
-    <AuthProvider>
-      <EnterpriseRagInner />
-    </AuthProvider>
-  );
-}
+export default EnterpriseRagInner;

@@ -104,14 +104,14 @@ export default function ChatPanel({
           <div key={m.id} className="mb-6">
             <div className={`flex gap-3 ${m.role === "user" ? "justify-end" : ""}`}>
               {m.role === "assistant" && (
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100">
-                  <Bot size={16} className="text-blue-600" />
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-soft)]">
+                  <Bot size={16} className="text-[var(--color-accent)]" />
                 </div>
               )}
               <div
                 className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                   m.role === "user"
-                    ? "bg-blue-600 text-white"
+                    ? "bg-[var(--color-accent)] text-white"
                     : "bg-white border text-gray-700"
                 }`}
               >
@@ -135,7 +135,7 @@ export default function ChatPanel({
                     key={i}
                     onMouseEnter={() => onSourceHover(i)}
                     onMouseLeave={() => onSourceHover(null)}
-                    className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 hover:bg-blue-100 hover:text-blue-600"
+                    className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
                   >
                     [{i + 1}] {s.document_name}
                   </span>
@@ -201,8 +201,8 @@ export default function ChatPanel({
         {streaming && (
           <div className="mb-6">
             <div className="flex gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100">
-                <Bot size={16} className="text-blue-600" />
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-soft)]">
+                <Bot size={16} className="text-[var(--color-accent)]" />
               </div>
               <div className="max-w-[80%] rounded-2xl border bg-white px-4 py-3 text-sm leading-relaxed text-gray-700">
                 {statusMsg ? (
@@ -228,7 +228,7 @@ export default function ChatPanel({
 
       {/* KB Selector */}
       {kbList && kbList.length > 0 && (
-        <div className="border-t bg-gray-50 px-4 py-2">
+        <div className="border-t bg-[var(--color-background)] px-4 py-2">
           <div className="flex items-center gap-2">
             <Database size={14} className="text-gray-400 shrink-0" />
             <span className="text-xs text-gray-500 shrink-0">检索范围:</span>
@@ -237,8 +237,8 @@ export default function ChatPanel({
                 onClick={() => onKbToggle?.("__all__")}
                 className={`rounded-full px-2.5 py-0.5 text-xs border transition-colors ${
                   selectedKbIds.length === 0
-                    ? "bg-blue-100 text-blue-700 border-blue-300"
-                    : "bg-white text-gray-500 border-gray-200 hover:border-blue-200"
+                    ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border-[var(--color-accent)]/20"
+                    : "bg-white text-gray-500 border-gray-200 hover:border-[var(--color-accent)]/30"
                 }`}
               >全部</button>
               {kbList.map(kb => {
@@ -248,8 +248,8 @@ export default function ChatPanel({
                     onClick={() => onKbToggle?.(kb.id)}
                     className={`rounded-full px-2.5 py-0.5 text-xs border transition-colors truncate max-w-[120px] ${
                       active
-                        ? "bg-blue-100 text-blue-700 border-blue-300"
-                        : "bg-white text-gray-500 border-gray-200 hover:border-blue-200"
+                        ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border-[var(--color-accent)]/20"
+                        : "bg-white text-gray-500 border-gray-200 hover:border-[var(--color-accent)]/30"
                     }`}
                   >{kb.name}</button>
                 );
@@ -270,12 +270,12 @@ export default function ChatPanel({
             placeholder="输入你的问题... (Enter 发送, Shift+Enter 换行)"
             rows={1}
             disabled={streaming}
-            className="flex-1 resize-none rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:opacity-50"
+            className="flex-1 resize-none rounded-lg border border-gray-200 bg-[var(--color-background)] px-4 py-3 text-sm outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 disabled:opacity-50"
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || streaming}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white hover:opacity-90 disabled:opacity-40"
           >
             <Send size={18} />
           </button>
