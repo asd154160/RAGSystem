@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
-import { Plus, Trash2, Save, X, Shield, Key } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Modal } from "@/components/ui/modal";
+import { Input, Textarea } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Plus, Trash2, Save, Shield, Key, ChevronDown, ChevronRight } from "lucide-react";
 
 interface Permission {
   id: string; code: string; description: string;
@@ -33,15 +38,16 @@ export default function PermissionsPage() {
   const [loading, setLoading] = useState(true);
 
   // Edit state
-  const [editing, setEditing] = useState<Role | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const [selectedPerms, setSelectedPerms] = useState<string[]>([]);
 
-  // New role state
-  const [showNew, setShowNew] = useState(false);
+  // New role modal
+  const [showNewModal, setShowNewModal] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
+  const [newPerms, setNewPerms] = useState<string[]>([]);
 
   useEffect(() => { loadData(); }, []);
 
@@ -58,42 +64,45 @@ export default function PermissionsPage() {
     setLoading(false);
   };
 
-  const startEdit = (role: Role) => {
-    setEditing(role);
-    setEditName(role.name);
-    setEditDesc(role.description || "");
-    setSelectedPerms(role.permissions.map(p => p.id));
-    setShowNew(false);
+  const toggleExpand = (role: Role) => {
+    if (expandedId === role.id) {
+      setExpandedId(null);
+    } else {
+      setExpandedId(role.id);
+      setEditName(role.name);
+      setEditDesc(role.description || "");
+      setSelectedPerms(role.permissions.map(p => p.id));
+    }
   };
 
-  const cancelEdit = () => {
-    setEditing(null);
-    setShowNew(false);
-  };
-
-  const handleSave = async () => {
-    if (!editing) return;
-    await apiPatch(`/api/roles/${editing.id}`, {
+  const handleSave = async (roleId: string) => {
+    await apiPatch(`/api/roles/${roleId}`, {
       name: editName,
       description: editDesc,
       permission_ids: selectedPerms,
     });
-    cancelEdit();
+    setExpandedId(null);
     loadData();
+  };
+
+  const openNewModal = () => {
+    setNewName("");
+    setNewDesc("");
+    setNewPerms([]);
+    setShowNewModal(true);
   };
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
-    await apiPost("/api/roles", { name: newName, description: newDesc, permission_ids: [] });
-    setShowNew(false);
-    setNewName("");
-    setNewDesc("");
+    await apiPost("/api/roles", { name: newName, description: newDesc, permission_ids: newPerms });
+    setShowNewModal(false);
     loadData();
   };
 
   const handleDelete = async (roleId: string) => {
     if (!confirm("确定删除该角色？")) return;
     await apiDelete(`/api/roles/${roleId}`);
+    if (expandedId === roleId) setExpandedId(null);
     loadData();
   };
 
@@ -103,112 +112,108 @@ export default function PermissionsPage() {
     );
   };
 
-  if (loading) return <div className="p-8">加载中...</div>;
+  const toggleNewPerm = (permId: string) => {
+    setNewPerms(prev =>
+      prev.includes(permId) ? prev.filter(id => id !== permId) : [...prev, permId]
+    );
+  };
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-16">
+      <p className="text-sm text-[var(--color-text-secondary)]">加载中...</p>
+    </div>
+  );
 
   return (
-      <div className="mx-auto max-w-4xl px-6 py-8">
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gray-800">权限管理</h2>
-          <button
-            onClick={() => { setShowNew(true); setEditing(null); }}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-          >
-            <Plus size={16} /> 新建角色
-          </button>
-        </div>
+    <div className="mx-auto max-w-4xl px-6 py-8">
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">权限管理</h2>
+        <Button variant="primary" onClick={openNewModal}>
+          <Plus size={16} /> 新建角色
+        </Button>
+      </div>
 
-        {/* New Role Form */}
-        {showNew && (
-          <div className="mb-6 rounded-lg border bg-white p-4">
-            <div className="flex items-center gap-3 mb-3">
-              <Shield size={18} className="text-blue-500" />
-              <input
-                value={newName} onChange={e => setNewName(e.target.value)}
-                placeholder="角色名称" autoFocus
-                className="flex-1 rounded border px-3 py-2 text-sm"
-              />
-              <input
-                value={newDesc} onChange={e => setNewDesc(e.target.value)}
-                placeholder="描述"
-                className="flex-1 rounded border px-3 py-2 text-sm"
-              />
-              <button onClick={handleCreate}
-                className="flex items-center gap-1 rounded-md bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700">
-                <Plus size={14} /> 创建
-              </button>
-              <button onClick={cancelEdit} className="p-2 text-gray-400 hover:text-gray-600"><X size={16} /></button>
-            </div>
-          </div>
-        )}
-
-        {/* All Permissions Legend */}
-        <div className="mb-6 flex flex-wrap gap-2">
-          <span className="text-xs text-gray-500 mr-2 mt-1">全部权限：</span>
+      {/* Permission Legend */}
+      <Card className="mb-6 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-[var(--color-text-secondary)] mr-2">全部权限：</span>
           {allPermissions.map(p => (
-            <span key={p.id}
-              className="inline-flex items-center gap-1 rounded-full border bg-gray-50 px-2.5 py-0.5 text-xs text-gray-600"
-            >
+            <Badge key={p.id} variant="default" className="gap-1">
               <Key size={10} /> {PERMISSION_LABELS[p.code] || p.code}
-            </span>
+            </Badge>
           ))}
         </div>
+      </Card>
 
-        {/* Roles List */}
-        <div className="space-y-3">
-          {roles.map(role => (
-            <div key={role.id} className="rounded-lg border bg-white">
+      {/* Roles List */}
+      <div className="space-y-3">
+        {roles.map(role => {
+          const isExpanded = expandedId === role.id;
+          const isSystem = SYSTEM_ROLES.has(role.name);
+
+          return (
+            <Card key={role.id} className="p-0 overflow-hidden">
               {/* Role Header */}
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
-                  <Shield size={18} className="text-blue-500" />
+                  <Shield size={18} className="text-[var(--color-accent)]" />
                   <div>
-                    <span className="font-medium text-sm">{role.name}</span>
-                    <span className="ml-2 text-xs text-gray-400">{role.description}</span>
+                    <span className="font-medium text-sm text-[var(--color-text-primary)]">{role.name}</span>
+                    {role.description && (
+                      <span className="ml-2 text-xs text-[var(--color-text-secondary)]">{role.description}</span>
+                    )}
                   </div>
-                  <span className="text-xs text-gray-400">{role.permissions.length} 个权限</span>
+                  <Badge variant="default">
+                    {isSystem ? "系统" : "自定义"}
+                  </Badge>
+                  <span className="text-xs text-[var(--color-text-secondary)]">{role.permissions.length} 个权限</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => startEdit(role)}
-                    className="rounded p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-500"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => toggleExpand(role)}
                   >
-                    <Save size={14} />
-                  </button>
-                  {!SYSTEM_ROLES.has(role.name) && (
-                    <button
+                    {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleSave(role.id)}
+                  >
+                    <Save size={14} /> 保存
+                  </Button>
+                  {!isSystem && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-500"
                       onClick={() => handleDelete(role.id)}
-                      className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500"
                     >
-                      <Trash2 size={14} />
-                    </button>
+                      <Trash2 size={14} /> 删除
+                    </Button>
                   )}
                 </div>
               </div>
 
               {/* Expanded Edit Mode */}
-              {editing?.id === role.id && (
-                <div className="border-t bg-gray-50 px-4 py-3">
+              {isExpanded && (
+                <div className="border-t border-[var(--color-border)] bg-gray-50 px-4 py-3">
                   <div className="flex gap-3 mb-3">
-                    <input
-                      value={editName} onChange={e => setEditName(e.target.value)}
-                      className="flex-1 rounded border px-3 py-1.5 text-sm"
+                    <Input
+                      label="角色名称"
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
                       placeholder="角色名称"
                     />
-                    <input
-                      value={editDesc} onChange={e => setEditDesc(e.target.value)}
-                      className="flex-1 rounded border px-3 py-1.5 text-sm"
-                      placeholder="描述"
+                    <Input
+                      label="描述"
+                      value={editDesc}
+                      onChange={e => setEditDesc(e.target.value)}
+                      placeholder="角色描述"
                     />
-                    <button onClick={handleSave}
-                      className="flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700">
-                      <Save size={14} /> 保存
-                    </button>
-                    <button onClick={cancelEdit}
-                      className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100">
-                      <X size={14} /> 取消
-                    </button>
                   </div>
-                  <p className="mb-2 text-xs text-gray-500">点击权限标签来分配/取消：</p>
+                  <p className="mb-2 text-xs text-[var(--color-text-secondary)]">点击权限标签来分配/取消：</p>
                   <div className="flex flex-wrap gap-1.5">
                     {allPermissions.map(p => {
                       const assigned = selectedPerms.includes(p.id);
@@ -216,13 +221,18 @@ export default function PermissionsPage() {
                         <button
                           key={p.id}
                           onClick={() => togglePerm(p.id)}
-                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors ${
-                            assigned
-                              ? "bg-blue-100 text-blue-700 border border-blue-300"
-                              : "bg-white text-gray-400 border border-gray-200 hover:border-blue-200"
-                          }`}
+                          className="cursor-pointer"
                         >
-                          {PERMISSION_LABELS[p.code] || p.code}
+                          <Badge
+                            variant="default"
+                            className={
+                              assigned
+                                ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border border-[var(--color-accent)]/20"
+                                : ""
+                            }
+                          >
+                            {PERMISSION_LABELS[p.code] || p.code}
+                          </Badge>
                         </button>
                       );
                     })}
@@ -231,24 +241,85 @@ export default function PermissionsPage() {
               )}
 
               {/* Permissions Tags (collapsed) */}
-              {editing?.id !== role.id && (
-                <div className="border-t px-4 py-2 flex flex-wrap gap-1">
+              {!isExpanded && (
+                <div className="border-t border-[var(--color-border)] px-4 py-2 flex flex-wrap gap-1">
                   {role.permissions.length === 0 ? (
-                    <span className="text-xs text-gray-400">无权限</span>
+                    <span className="text-xs text-[var(--color-text-secondary)]">无权限</span>
                   ) : (
                     role.permissions.map(p => (
-                      <span key={p.id}
-                        className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs text-blue-700"
+                      <Badge
+                        key={p.id}
+                        variant="default"
+                        className="bg-[var(--color-accent-soft)] text-[var(--color-accent)] border border-[var(--color-accent)]/20"
                       >
                         {PERMISSION_LABELS[p.code] || p.code}
-                      </span>
+                      </Badge>
                     ))
                   )}
                 </div>
               )}
-            </div>
-          ))}
-        </div>
+            </Card>
+          );
+        })}
       </div>
+
+      {/* Create Role Modal */}
+      <Modal
+        open={showNewModal}
+        onClose={() => setShowNewModal(false)}
+        title="新建角色"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowNewModal(false)}>取消</Button>
+            <Button variant="primary" onClick={handleCreate}>
+              <Plus size={14} /> 创建
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Input
+            label="角色名称"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            placeholder="输入角色名称"
+            autoFocus
+          />
+          <Textarea
+            label="描述"
+            value={newDesc}
+            onChange={e => setNewDesc(e.target.value)}
+            placeholder="输入角色描述"
+            rows={3}
+          />
+          <div>
+            <p className="mb-2 text-xs text-[var(--color-text-secondary)]">选择权限：</p>
+            <div className="flex flex-wrap gap-1.5">
+              {allPermissions.map(p => {
+                const selected = newPerms.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => toggleNewPerm(p.id)}
+                    className="cursor-pointer transition-colors"
+                  >
+                    <Badge
+                      variant="default"
+                      className={
+                        selected
+                          ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border border-[var(--color-accent)]/20"
+                          : ""
+                      }
+                    >
+                      {PERMISSION_LABELS[p.code] || p.code}
+                    </Badge>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </Modal>
+    </div>
   );
 }

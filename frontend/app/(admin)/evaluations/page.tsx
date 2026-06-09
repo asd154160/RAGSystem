@@ -3,7 +3,15 @@
 import { useEffect, useState, useCallback } from "react";
 
 import { apiGet, apiPost, apiDelete } from "@/lib/api";
-import { Play, Plus, Trash2, BarChart3, ChevronDown, ChevronRight, AlertCircle, CheckCircle, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input, Textarea } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import {
+  Play, Plus, Trash2, BarChart3,
+  ChevronDown, ChevronRight, AlertCircle, CheckCircle, XCircle,
+} from "lucide-react";
 
 interface Dataset { id: string; name: string; question_count: number; created_at: string | null; }
 interface Run {
@@ -24,13 +32,11 @@ const SAMPLE_DATASET = [
 ];
 
 function ScoreBadge({ score, label }: { score: number | null; label: string }) {
-  if (score == null) return <span className="text-xs text-gray-400">-</span>;
-  const pct = (score * 100).toFixed(1);
-  const color = score >= 0.8 ? "text-green-600" : score >= 0.6 ? "text-amber-600" : "text-red-500";
+  if (score == null) return <span className="text-xs text-[var(--color-text-secondary)]">-</span>;
+  const variant = score >= 0.8 ? "success" as const : score >= 0.6 ? "warning" as const : "danger" as const;
+  const pctInt = (score * 100).toFixed(0);
   return (
-    <span className={`text-xs font-medium ${color}`} title={label}>
-      {(score * 100).toFixed(0)}%
-    </span>
+    <Badge variant={variant}>{pctInt}%</Badge>
   );
 }
 
@@ -38,10 +44,11 @@ export default function EvaluationsPage() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [name, setName] = useState("");
-  const [questions, setQuestions] = useState(JSON.stringify(SAMPLE_DATASET, null, 2));
+  const [questionsText, setQuestionsText] = useState(JSON.stringify(SAMPLE_DATASET, null, 2));
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
 
-  // Expanded run → detailed results
+  // Expanded run -> detailed results
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const [runDetails, setRunDetails] = useState<Record<string, EvalResultItem[]>>({});
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -72,11 +79,17 @@ export default function EvaluationsPage() {
   }, [expandedRunId, runs]);
 
   const handleCreate = async () => {
-    if (!name) return;
+    if (!name.trim()) return;
+    setCreating(true);
     try {
-      await apiPost("/api/admin/evaluations/datasets", { name, questions: JSON.parse(questions) });
-      setName(""); loadAll();
-    } catch (e: any) { alert("JSON 格式错误: " + e.message); }
+      await apiPost("/api/admin/evaluations/datasets", { name: name.trim(), questions: JSON.parse(questionsText) });
+      setName("");
+      setQuestionsText(JSON.stringify(SAMPLE_DATASET, null, 2));
+      loadAll();
+    } catch (e: any) {
+      alert("JSON 格式错误: " + e.message);
+    }
+    setCreating(false);
   };
 
   const handleRun = async (datasetId: string) => {
@@ -116,176 +129,198 @@ export default function EvaluationsPage() {
     }
   };
 
-  if (loading) return <div className="p-8">加载中...</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center py-16">
+      <p className="text-sm text-[var(--color-text-secondary)]">加载中...</p>
+    </div>
+  );
 
   return (
-      <div className="mx-auto max-w-5xl px-6 py-8">
-        <h2 className="mb-6 text-xl font-semibold text-gray-800">RAG 评测</h2>
+    <div className="mx-auto max-w-5xl px-6 py-8">
+      <h2 className="mb-6 text-xl font-semibold text-[var(--color-text-primary)]">RAG 评测</h2>
 
-        {/* Create Dataset */}
-        <div className="mb-8 rounded-lg border bg-white p-4">
-          <h3 className="mb-3 text-sm font-medium">创建评测集</h3>
-          <div className="flex gap-3 mb-3">
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="评测集名称"
-              className="flex-1 rounded border px-3 py-2 text-sm" />
-            <button onClick={handleCreate}
-              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">
-              <Plus size={14} /> 创建
-            </button>
-          </div>
-          <textarea value={questions} onChange={e => setQuestions(e.target.value)}
-            rows={6} className="w-full rounded border px-3 py-2 text-xs font-mono" />
-          <p className="mt-1 text-xs text-gray-400">
-            JSON 格式: [{"{question, expected_answer, expected_sources}"}]
-            · expected_sources 填写期望被检索到的文档名列表
-          </p>
+      {/* Create Dataset */}
+      <Card className="mb-6">
+        <h3 className="text-sm font-medium text-[var(--color-text-primary)] mb-4">创建评测集</h3>
+        <div className="flex gap-3 mb-3">
+          <Input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="评测集名称"
+          />
+          <Button variant="primary" onClick={handleCreate} loading={creating}>
+            <Plus size={14} /> 创建
+          </Button>
         </div>
+        <Textarea
+          label="评测问题 (JSON)"
+          value={questionsText}
+          onChange={e => setQuestionsText(e.target.value)}
+          rows={6}
+          className="font-mono"
+        />
+        <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+          JSON 格式: [{"{question, expected_answer, expected_sources}"}]
+          · expected_sources 填写期望被检索到的文档名列表
+        </p>
+      </Card>
 
-        {/* Datasets */}
-        <h3 className="mb-3 text-sm font-medium">评测集</h3>
-        <div className="mb-8 space-y-2">
-          {datasets.map(d => (
-            <div key={d.id} className="flex items-center justify-between rounded-lg border bg-white px-4 py-3">
+      {/* Datasets */}
+      <h3 className="mb-3 text-sm font-medium text-[var(--color-text-primary)]">评测集</h3>
+      <div className="mb-8 space-y-2">
+        {datasets.map(d => (
+          <Card key={d.id} className="!p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-3">
-                <BarChart3 size={16} className="text-blue-500" />
-                <span className="text-sm font-medium">{d.name}</span>
-                <span className="text-xs text-gray-400">{d.question_count} 题</span>
+                <BarChart3 size={16} className="text-[var(--color-accent)]" />
+                <span className="text-sm font-medium text-[var(--color-text-primary)]">{d.name}</span>
+                <span className="text-xs text-[var(--color-text-secondary)]">{d.question_count} 题</span>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => handleRun(d.id)}
-                  className="flex items-center gap-1 rounded bg-green-600 px-3 py-1 text-xs text-white hover:bg-green-700">
-                  <Play size={12} /> 运行
-                </button>
-                <button onClick={() => handleDeleteDataset(d.id)} className="rounded p-1 text-gray-400 hover:text-red-500">
-                  <Trash2 size={14} />
-                </button>
+                <Button variant="ghost" size="sm" className="text-emerald-600" onClick={() => handleRun(d.id)}>
+                  <Play size={12} /> 运行评测
+                </Button>
+                <Button variant="ghost" size="sm" className="text-red-500" onClick={() => handleDeleteDataset(d.id)}>
+                  <Trash2 size={14} /> 删除
+                </Button>
               </div>
             </div>
-          ))}
-          {datasets.length === 0 && <p className="py-4 text-center text-sm text-gray-400">暂无评测集，请创建</p>}
-        </div>
+          </Card>
+        ))}
+        {datasets.length === 0 && (
+          <EmptyState icon={BarChart3} title="暂无评测数据" description={'创建评测集后点击"运行"开始评测'} />
+        )}
+      </div>
 
-        {/* Run History */}
-        <h3 className="mb-3 text-sm font-medium">评测记录</h3>
-        <div className="space-y-2">
-          {runs.map(r => {
-            const isExpanded = expandedRunId === r.id;
-            const details = runDetails[r.id];
-            return (
-              <div key={r.id} className="rounded-lg border bg-white">
-                <button
-                  onClick={() => toggleRun(r.id)}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gray-50"
-                >
-                  {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${
-                    r.status === "completed" ? "bg-green-500" :
-                    r.status === "running" || r.status === "pending" ? "bg-blue-500 animate-pulse" :
-                    r.status === "failed" ? "bg-red-500" : "bg-gray-300"
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium truncate">{r.dataset_name || "评测集"}</span>
-                      <span className="text-xs text-gray-400">{r.total_questions} 题</span>
-                    </div>
-                    <div className="text-xs text-gray-400">
-                      {r.status === "completed" ? "已完成" :
-                       r.status === "running" ? "运行中..." :
-                       r.status === "pending" ? "等待中..." :
-                       r.status === "failed" ? "失败" : r.status}
-                      {r.completed_at && ` · ${new Date(r.completed_at).toLocaleString("zh-CN")}`}
-                    </div>
+      {/* Run History */}
+      <h3 className="mb-3 text-sm font-medium text-[var(--color-text-primary)]">评测记录</h3>
+      <div className="space-y-2">
+        {runs.map(r => {
+          const isExpanded = expandedRunId === r.id;
+          const details = runDetails[r.id];
+          return (
+            <Card key={r.id} className="!p-0 overflow-hidden">
+              <button
+                onClick={() => toggleRun(r.id)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+              >
+                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <span className={`w-2 h-2 rounded-full shrink-0 ${
+                  r.status === "completed" ? "bg-emerald-500" :
+                  r.status === "running" || r.status === "pending" ? "bg-[var(--color-accent)] animate-pulse" :
+                  r.status === "failed" ? "bg-red-500" : "bg-gray-300"
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[var(--color-text-primary)] truncate">{r.dataset_name || "评测集"}</span>
+                    <span className="text-xs text-[var(--color-text-secondary)]">{r.total_questions} 题</span>
                   </div>
-                  {r.status === "completed" && (
-                    <div className="flex gap-3 text-xs shrink-0">
-                      <ScoreBadge score={r.avg_answer_score} label="答案分" />
-                      <ScoreBadge score={r.avg_recall} label="召回率" />
-                      <ScoreBadge score={r.avg_hit_rate} label="命中率" />
-                    </div>
-                  )}
-                </button>
-
-                {/* Expanded detail */}
-                {isExpanded && (
-                  <div className="border-t px-4 py-3">
-                    {loadingDetail && !details ? (
-                      <p className="py-4 text-center text-sm text-gray-400">加载中...</p>
-                    ) : r.status === "running" || r.status === "pending" ? (
-                      <p className="py-4 text-center text-sm text-gray-400">评测进行中，请稍候...</p>
-                    ) : !details || details.length === 0 ? (
-                      <p className="py-4 text-center text-sm text-gray-400">暂无结果数据</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {/* Summary bar */}
-                        {r.status === "completed" && (
-                          <div className="flex items-center gap-4 text-xs text-gray-500 mb-3 pb-3 border-b">
-                            <span>答案分: <b className="text-gray-700">{((r.avg_answer_score ?? 0) * 100).toFixed(1)}%</b></span>
-                            <span>召回率: <b className="text-gray-700">{((r.avg_recall ?? 0) * 100).toFixed(1)}%</b></span>
-                            <span>命中率: <b className="text-gray-700">{((r.avg_hit_rate ?? 0) * 100).toFixed(1)}%</b></span>
-                            <span>拒答率: <b className="text-gray-700">{((r.low_confidence_rate ?? 0) * 100).toFixed(1)}%</b></span>
-                          </div>
-                        )}
-                        {/* Per-question results */}
-                        {details.map((item, i) => (
-                          <div key={item.id} className="rounded border border-gray-100 bg-gray-50/50 p-3">
-                            <div className="flex items-start justify-between gap-2 mb-2">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-xs font-medium text-gray-500 shrink-0">#{i + 1}</span>
-                                <span className="text-sm text-gray-800 font-medium truncate">{item.question}</span>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                {item.low_confidence && (
-                                  <span className="flex items-center gap-1 text-xs text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded">
-                                    <AlertCircle size={11} /> 拒答
-                                  </span>
-                                )}
-                                <ScoreBadge score={item.answer_score} label="答案分" />
-                                <ScoreBadge score={item.recall_score} label="召回" />
-                                <ScoreBadge score={item.source_hit_rate} label="命中" />
-                              </div>
-                            </div>
-                            {/* Expected vs Actual */}
-                            <div className="grid grid-cols-2 gap-2 mt-2">
-                              <div>
-                                <p className="text-xs text-gray-400 mb-1 flex items-center gap-1">
-                                  <CheckCircle size={11} className="text-green-500" /> 期望答案
-                                </p>
-                                <p className="text-xs text-gray-600 bg-white rounded border px-2 py-1.5 max-h-24 overflow-y-auto">
-                                  {item.expected_answer || <span className="text-gray-400">无</span>}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-xs text-gray-400 mb-1 flex items-center gap-1">
-                                  {item.low_confidence
-                                    ? <XCircle size={11} className="text-red-400" />
-                                    : <CheckCircle size={11} className="text-blue-400" />}
-                                  实际回答
-                                </p>
-                                <p className="text-xs text-gray-600 bg-white rounded border px-2 py-1.5 max-h-24 overflow-y-auto">
-                                  {item.actual_answer || <span className="text-gray-400 italic">无（未检索到相关内容）</span>}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {/* Delete run button */}
-                    <div className="mt-3 pt-2 border-t flex justify-end">
-                      <button
-                        onClick={() => handleDeleteRun(r.id)}
-                        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 hover:text-red-500 hover:bg-red-50"
-                      >
-                        <Trash2 size={12} /> 删除此记录
-                      </button>
-                    </div>
+                  <div className="text-xs text-[var(--color-text-secondary)]">
+                    {r.status === "completed" ? "已完成" :
+                     r.status === "running" ? "运行中..." :
+                     r.status === "pending" ? "等待中..." :
+                     r.status === "failed" ? "失败" : r.status}
+                    {r.completed_at && ` · ${new Date(r.completed_at).toLocaleString("zh-CN")}`}
+                  </div>
+                </div>
+                {r.status === "completed" && (
+                  <div className="flex gap-2 shrink-0">
+                    <ScoreBadge score={r.avg_answer_score} label="答案分" />
+                    <ScoreBadge score={r.avg_recall} label="召回率" />
+                    <ScoreBadge score={r.avg_hit_rate} label="命中率" />
                   </div>
                 )}
-              </div>
-            );
-          })}
-          {runs.length === 0 && <p className="py-8 text-center text-sm text-gray-400">暂无评测记录，创建评测集后点击"运行"开始</p>}
-        </div>
+              </button>
+
+              {/* Expanded detail */}
+              {isExpanded && (
+                <div className="border-t border-[var(--color-border)] px-4 py-3">
+                  {loadingDetail && !details ? (
+                    <p className="py-4 text-center text-sm text-[var(--color-text-secondary)]">加载中...</p>
+                  ) : r.status === "running" || r.status === "pending" ? (
+                    <p className="py-4 text-center text-sm text-[var(--color-text-secondary)]">评测进行中，请稍候...</p>
+                  ) : !details || details.length === 0 ? (
+                    <p className="py-4 text-center text-sm text-[var(--color-text-secondary)]">暂无结果数据</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {/* Summary bar */}
+                      {r.status === "completed" && (
+                        <div className="flex items-center gap-4 text-xs text-[var(--color-text-secondary)] mb-3 pb-3 border-b border-[var(--color-border)]">
+                          <span>答案分: <b className="text-[var(--color-text-primary)]">{((r.avg_answer_score ?? 0) * 100).toFixed(1)}%</b></span>
+                          <span>召回率: <b className="text-[var(--color-text-primary)]">{((r.avg_recall ?? 0) * 100).toFixed(1)}%</b></span>
+                          <span>命中率: <b className="text-[var(--color-text-primary)]">{((r.avg_hit_rate ?? 0) * 100).toFixed(1)}%</b></span>
+                          <span>拒答率: <b className="text-[var(--color-text-primary)]">{((r.low_confidence_rate ?? 0) * 100).toFixed(1)}%</b></span>
+                        </div>
+                      )}
+                      {/* Per-question results */}
+                      {details.map((item, i) => (
+                        <div key={item.id} className="rounded-lg border border-[var(--color-border)] bg-gray-50 p-3">
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xs font-medium text-[var(--color-text-secondary)] shrink-0">#{i + 1}</span>
+                              <span className="text-sm text-[var(--color-text-primary)] font-medium truncate">{item.question}</span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {item.low_confidence && (
+                                <Badge variant="warning" className="gap-1">
+                                  <AlertCircle size={11} /> 拒答
+                                </Badge>
+                              )}
+                              <ScoreBadge score={item.answer_score} label="答案分" />
+                              <ScoreBadge score={item.recall_score} label="召回" />
+                              <ScoreBadge score={item.source_hit_rate} label="命中" />
+                            </div>
+                          </div>
+                          {/* Expected vs Actual */}
+                          <div className="grid grid-cols-2 gap-2 mt-2">
+                            <div>
+                              <p className="text-xs text-[var(--color-text-secondary)] mb-1 flex items-center gap-1">
+                                <CheckCircle size={11} className="text-emerald-500" /> 期望答案
+                              </p>
+                              <p className="text-xs text-[var(--color-text-primary)] bg-white rounded-lg border border-[var(--color-border)] px-2 py-1.5 max-h-24 overflow-y-auto">
+                                {item.expected_answer || <span className="text-[var(--color-text-secondary)]">无</span>}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-[var(--color-text-secondary)] mb-1 flex items-center gap-1">
+                                {item.low_confidence
+                                  ? <XCircle size={11} className="text-red-400" />
+                                  : <CheckCircle size={11} className="text-[var(--color-accent)]" />}
+                                实际回答
+                              </p>
+                              <p className="text-xs text-[var(--color-text-primary)] bg-white rounded-lg border border-[var(--color-border)] px-2 py-1.5 max-h-24 overflow-y-auto">
+                                {item.actual_answer || <span className="text-[var(--color-text-secondary)] italic">无（未检索到相关内容）</span>}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Delete run button */}
+                  <div className="mt-3 pt-2 border-t border-[var(--color-border)] flex justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-500"
+                      onClick={() => handleDeleteRun(r.id)}
+                    >
+                      <Trash2 size={12} /> 删除此记录
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Card>
+          );
+        })}
+        {runs.length === 0 && (
+          <EmptyState
+            icon={BarChart3}
+            title="暂无评测记录"
+            description={'创建评测集后点击"运行"开始评测'}
+          />
+        )}
       </div>
+    </div>
   );
 }

@@ -2,8 +2,12 @@
 
 import { useEffect, useState } from "react";
 
-import { apiGet, apiPost, apiPatch } from "@/lib/api";
-import { Save, Database } from "lucide-react";
+import { apiGet, apiPatch } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Save, Sliders } from "lucide-react";
 
 interface KB { id: string; name: string; type: string; }
 interface RAGConfig {
@@ -27,6 +31,7 @@ export default function RagConfigsPage() {
   const [selectedKb, setSelectedKb] = useState<string>("");
   const [config, setConfig] = useState<RAGConfig>(defaults);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => { loadKBs(); }, []);
@@ -39,74 +44,143 @@ export default function RagConfigsPage() {
   const loadConfig = async (kbId: string) => {
     setSelectedKb(kbId);
     setSaved(false);
+    if (!kbId) { setConfig(defaults); return; }
     try { setConfig(await apiGet<RAGConfig>(`/api/knowledge-bases/${kbId}/rag-config`)); } catch { setConfig(defaults); }
   };
 
   const handleSave = async () => {
     if (!selectedKb) return;
-    await apiPatch(`/api/knowledge-bases/${selectedKb}/rag-config`, config);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaving(true);
+    try {
+      await apiPatch(`/api/knowledge-bases/${selectedKb}/rag-config`, config);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {}
+    setSaving(false);
   };
 
-  if (loading) return <div className="p-8">加载中...</div>;
+  const updateConfig = (partial: Partial<RAGConfig>) => {
+    setConfig(prev => ({ ...prev, ...partial }));
+    setSaved(false);
+  };
 
-  return (
-      <div className="mx-auto max-w-3xl px-6 py-8">
-        <h2 className="mb-6 text-xl font-semibold text-gray-800">RAG 参数配置</h2>
-
-        <div className="mb-4">
-          <label className="text-sm text-gray-600">选择知识库</label>
-          <select value={selectedKb} onChange={e => loadConfig(e.target.value)}
-            className="ml-3 rounded border px-3 py-2 text-sm">
-            <option value="">-- 选择知识库 --</option>
-            {kbs.filter(k => k.type === "enterprise").map(k => (
-              <option key={k.id} value={k.id}>{k.name}</option>
-            ))}
-          </select>
-        </div>
-
-        {selectedKb && (
-          <div className="space-y-4 rounded-lg border bg-white p-6">
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              <NumField label="Chunk Size" value={config.chunk_size} onChange={v => setConfig({...config, chunk_size: v})} />
-              <NumField label="Overlap" value={config.chunk_overlap} onChange={v => setConfig({...config, chunk_overlap: v})} />
-              <NumField label="Parent Size" value={config.parent_chunk_size} onChange={v => setConfig({...config, parent_chunk_size: v})} />
-              <NumField label="Top-K Vector" value={config.top_k_vector} onChange={v => setConfig({...config, top_k_vector: v})} />
-              <NumField label="Top-K BM25" value={config.top_k_bm25} onChange={v => setConfig({...config, top_k_bm25: v})} />
-              <NumField label="RRF K" value={config.rrf_k} onChange={v => setConfig({...config, rrf_k: v})} />
-              <NumField label="Rerank Top-N" value={config.rerank_top_n} onChange={v => setConfig({...config, rerank_top_n: v})} />
-              <NumField label="阈值" value={config.score_threshold} step={0.05} onChange={v => setConfig({...config, score_threshold: v})} />
-            </div>
-            <div className="flex flex-wrap gap-4">
-              <BoolField label="Rerank" value={config.enable_rerank} onChange={v => setConfig({...config, enable_rerank: v})} />
-
-              <BoolField label="Parent-Child Chunking" value={config.enable_parent_child_chunking} onChange={v => setConfig({...config, enable_parent_child_chunking: v})} />
-            </div>
-            <button onClick={handleSave}
-              className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm text-white ${saved ? "bg-green-500" : "bg-blue-600 hover:bg-blue-700"}`}>
-              <Save size={14} /> {saved ? "已保存" : "保存配置"}
-            </button>
-          </div>
-        )}
-      </div>
-  );
-}
-
-function NumField({ label, value, step = 1, onChange }: { label: string; value: number; step?: number; onChange: (v: number) => void }) {
-  return (
-    <div>
-      <label className="text-xs text-gray-500">{label}</label>
-      <input type="number" value={value} step={step} onChange={e => onChange(parseFloat(e.target.value) || 0)}
-        className="w-full rounded border px-2 py-1.5 text-sm" />
+  if (loading) return (
+    <div className="flex items-center justify-center py-16">
+      <div className="w-8 h-8 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
     </div>
   );
-}
 
-function BoolField({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+  const enterpriseKbs = kbs.filter(k => k.type === "enterprise");
+
   return (
-    <label className="flex items-center gap-1.5 text-sm">
-      <input type="checkbox" checked={value} onChange={e => onChange(e.target.checked)} /> {label}
-    </label>
+    <div className="mx-auto max-w-3xl px-6 py-8">
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">RAG 参数配置</h2>
+      </div>
+
+      <div className="mb-6">
+        <label className="block mb-1.5 text-sm font-medium text-[var(--color-text-primary)]">选择知识库</label>
+        <select
+          value={selectedKb}
+          onChange={e => loadConfig(e.target.value)}
+          className="w-full rounded-lg border border-[var(--color-border)] bg-white px-3 py-2.5 text-sm"
+        >
+          <option value="">-- 选择知识库 --</option>
+          {enterpriseKbs.map(k => (
+            <option key={k.id} value={k.id}>{k.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {selectedKb ? (
+        <Card>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Input
+              label="Chunk Size"
+              type="number"
+              value={config.chunk_size}
+              onChange={e => updateConfig({ chunk_size: parseInt(e.target.value) || 0 })}
+            />
+            <Input
+              label="Overlap"
+              type="number"
+              value={config.chunk_overlap}
+              onChange={e => updateConfig({ chunk_overlap: parseInt(e.target.value) || 0 })}
+            />
+            <Input
+              label="Parent Size"
+              type="number"
+              value={config.parent_chunk_size}
+              onChange={e => updateConfig({ parent_chunk_size: parseInt(e.target.value) || 0 })}
+            />
+            <Input
+              label="Top-K Vector"
+              type="number"
+              value={config.top_k_vector}
+              onChange={e => updateConfig({ top_k_vector: parseInt(e.target.value) || 0 })}
+            />
+            <Input
+              label="Top-K BM25"
+              type="number"
+              value={config.top_k_bm25}
+              onChange={e => updateConfig({ top_k_bm25: parseInt(e.target.value) || 0 })}
+            />
+            <Input
+              label="RRF K"
+              type="number"
+              value={config.rrf_k}
+              onChange={e => updateConfig({ rrf_k: parseInt(e.target.value) || 0 })}
+            />
+            <Input
+              label="Rerank Top-N"
+              type="number"
+              value={config.rerank_top_n}
+              onChange={e => updateConfig({ rerank_top_n: parseInt(e.target.value) || 0 })}
+            />
+            <Input
+              label="Score 阈值"
+              type="number"
+              step={0.05}
+              value={config.score_threshold}
+              onChange={e => updateConfig({ score_threshold: parseFloat(e.target.value) || 0 })}
+            />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-6">
+            <label className="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
+              <input
+                type="checkbox"
+                checked={config.enable_rerank}
+                onChange={e => updateConfig({ enable_rerank: e.target.checked })}
+                className="rounded"
+              /> 启用 Rerank
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
+              <input
+                type="checkbox"
+                checked={config.enable_parent_child_chunking}
+                onChange={e => updateConfig({ enable_parent_child_chunking: e.target.checked })}
+                className="rounded"
+              /> 启用 Parent-Child Chunking
+            </label>
+          </div>
+          <div className="mt-6">
+            <Button
+              variant={saved ? "primary" : "primary"}
+              onClick={handleSave}
+              loading={saving}
+              className={saved ? "!bg-emerald-600 hover:!bg-emerald-700" : ""}
+            >
+              <Save size={14} /> {saved ? "已保存" : "保存配置"}
+            </Button>
+          </div>
+        </Card>
+      ) : (
+        <EmptyState
+          icon={Sliders}
+          title="请选择知识库"
+          description="选择一个知识库以配置其 RAG 参数"
+        />
+      )}
+    </div>
   );
 }
