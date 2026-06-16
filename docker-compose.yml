@@ -136,7 +136,7 @@ services:
         condition: service_healthy
     networks:
       - rag_network
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --loop uvloop --http httptools
     deploy:
       resources:
         reservations:
@@ -209,7 +209,7 @@ services:
         condition: service_healthy
     networks:
       - rag_network
-    command: npm run dev
+    command: sh -c "test -f .next/BUILD_ID && npm start || (npm run build && npm start)"
 
   backup-cron:
     build: ./backend

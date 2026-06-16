@@ -8,8 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cd D:\Desktop\RAGSystem
 docker compose up -d                         # 启动全部服务（docker-compose.yml 已内置 GPU，需 nvidia-container-toolkit）
 docker compose up -d --build backend worker  # 代码变更后重建
-docker compose restart backend               # 快速重启后端（volume 挂载，代码即改即生效）
-docker compose restart frontend              # 重启前端（Next.js dev 模式需重启识别新页面）
+docker compose restart backend               # 快速重启后端（生产模式无 reload，代码变更后需重启）
+docker compose restart frontend              # 重启前端（生产模式 next start）
+docker compose exec frontend sh -c "rm -rf .next && npm run build"  # 前端代码变更后重建（重启前执行）
 docker compose ps                            # 查看服务状态
 docker compose logs backend                  # 后端日志
 docker compose logs worker                   # Worker 日志
@@ -110,7 +111,7 @@ docker compose exec backend python scripts/migrate_milvus_schema.py --force     
 
 ## 技术栈
 
-后端 FastAPI + SQLAlchemy(async) + Pydantic | 前端 Next.js 14 App Router + TailwindCSS + TypeScript | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | Redis（限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁） | Embedding bge-m3（CPU/GPU 自适应） | Rerank bge-reranker-v2-m3（CPU/GPU 自适应） | PyTorch 2.5.1+cu124 | 监控 Prometheus + 日志持久化 | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
+后端 FastAPI + SQLAlchemy(async) + Pydantic + Uvicorn (4 workers + uvloop + httptools) | 前端 Next.js 14 App Router + TailwindCSS + TypeScript (production mode) | AI 编排 LangChain + LangGraph | 向量库 Milvus | DB PostgreSQL 16 + pgvector + pg_trgm | 对象存储 MinIO | Redis（限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁） | Embedding bge-m3（CPU/GPU 自适应） | Rerank bge-reranker-v2-m3（CPU/GPU 自适应） | PyTorch 2.5.1+cu124 | 监控 Prometheus + 日志持久化 | LLM MiniMax/OpenAI/DeepSeek/Qwen（OpenAI 兼容）
 
 ## 架构概览
 
@@ -143,7 +144,7 @@ docker compose exec backend python scripts/migrate_milvus_schema.py --force     
 
 ## 关键约定
 
-- **Docker volume 挂载**：backend 和 frontend 都挂载源码目录，代码改动即时生效（前端新增页面需 `docker compose restart frontend` 让 Next.js 重新扫描路由）
+- **Docker volume 挂载**：backend 和 frontend 都挂载源码目录。backend 为生产模式（4 workers + uvloop），代码改动需 `docker compose restart backend` 生效。frontend 为生产模式（`next build` + `next start`），代码改动需先 `docker compose exec frontend sh -c "rm -rf .next && npm run build"` 重建，再 `docker compose restart frontend`
 - **种子数据**：`docker compose exec backend python -m app.db.seed`（`SEED_VERSION` 版本控制：DB 中版本 < 代码版本时增量 upsert，版本一致则跳过；首次运行全量创建）
 - **向量入库**：Docker worker 自动处理 parse + chunk + embed 全流程，无需本地运行
 - **模型文件**：`models/` 目录首次启动时自动从 HuggingFace 下载 bge-m3 + bge-reranker-v2-m3（约 3GB），也可手动运行 `python scripts/download_models.py` 预下载。国内用户设置 `HF_ENDPOINT=https://hf-mirror.com` 加速
@@ -153,6 +154,10 @@ docker compose exec backend python scripts/migrate_milvus_schema.py --force     
 - **DB session 双模式**：`db/session.py` 提供 `async_session`（FastAPI 异步）和 `sync_session`（worker 同步），互不干扰
 - **前端 API 代理**：`next.config.js` 内置 `rewrites` 将 `/api/*` 代理到 `http://backend:8000`，容器内无需直连后端端口。`NEXT_PUBLIC_API_URL` 设为空（`?? ""`）时走代理，设为 `http://localhost:8000` 时直连后端（本地开发）。
 - **CORS 配置**：后端 `cors_origins` 从 `.env` 的 `CORS_ORIGINS` 读取（逗号分隔，默认 `http://localhost:3000`），生产部署时需添加外部域名（如 `https://rag.asd154160.icu`）。
+- **RAG 限流**：`rate_limit.py` 提供 `check_rag_rate_limit()`，对每位用户的 RAG 查询进行频率限制（默认 30次/分钟，可通过 `RAG_RATE_LIMIT_PER_MINUTE` 配置）。Enterprise 和 Personal RAG 的 SSE 端点均已接入。
+- **请求体大小限制**：`middleware.py` 的 `RequestSizeLimitMiddleware` 在 ASGI 层拦截超大请求（默认 10MB，通过 `MAX_REQUEST_BODY_SIZE` 配置）。文件上传路径 `/api/personal-rag/documents/` 和 `/api/documents/` 豁免，由端点自行校验文件大小。
+- **Entrypoint workers 自动检测**：`entrypoint.sh` 在未显式指定 `--workers` 时自动检测 CPU 核数，上限 4（Docker 容器中 `nproc` 返回宿主机核数，需限制防止连接池溢出）。可通过 `docker-compose.yml` 的 `command` 手动覆盖。
+- **注册验证**：用户名仅限连续英文字母（`[a-zA-Z]+`），密码仅限 `[a-zA-Z0-9_]+` 且须包含至少两种字符类型。前后端验证规则一致。
 
 ## 数据模型
 
@@ -231,10 +236,13 @@ Redis 检索缓存命中? → 命中直接返回 / 未命中→ Milvus向量(is_
 
 | 文件 | 用途 |
 |------|------|
-| `backend/app/main.py` | 入口，路由注册（13 个 router），CORS（`cors_origins` 从 `.env` 读取） |
-| `backend/app/core/config.py` | pydantic-settings，`.env` 映射（带默认值） |
+| `backend/app/main.py` | 入口，路由注册（13 个 router），RequestSizeLimitMiddleware + CORS + GZipMiddleware + Prometheus（`cors_origins` 从 `.env` 读取） |
+| `backend/app/core/config.py` | pydantic-settings，`.env` 映射（含连接池、限流、请求体大小限制） |
 | `backend/app/core/security.py` | JWT 生成/验证，`get_current_user`（预加载 Role.permissions），`require_permission` |
-| `backend/app/db/session.py` | `async_session`（asyncpg）+ `sync_session`（psycopg2） |
+| `backend/app/core/rate_limit.py` | Redis 限流：登录限流 + `check_rag_rate_limit()` RAG 查询限流 |
+| `backend/app/core/middleware.py` | `RequestSizeLimitMiddleware` — ASGI 层请求体大小拦截（默认 10MB，豁免上传路径） |
+| `backend/app/db/session.py` | `async_session`（asyncpg）+ `sync_session`（psycopg2），连接池参数从 config 读取 |
+| `backend/entrypoint.sh` | 模型下载 + workers 自动检测（上限 4） |
 | `backend/Dockerfile` | Docker 构建：PyTorch 官方 index (cu124) 安装 → 清华镜像安装其他依赖 |
 | `backend/app/workers/main.py` | 异步 Worker——轮询 document_processing_tasks，parse→chunk→embed→index |
 | `backend/app/services/retrieval_service.py` | 混合检索：Milvus 向量 + pg_trgm 关键词 + RRF 融合 + DB 二次校验（validate_retrieval_results） |
@@ -272,7 +280,7 @@ Next.js App Router 使用三个路由组，每组有独立 layout 和认证策�
 
 **Tailwind 扩展**（`tailwind.config.ts`）：`accent`, `accent-soft`, `surface`, `border` 颜色 + `font-sans`（Geist Sans + PingFang SC + Microsoft YaHei）+ `rounded-card` (12px)
 
-**UI 组件库**（`components/ui/`，barrel 导出 `index.ts`）：`Button`（primary/secondary/ghost/danger + loading）, `Input` / `Textarea`（统一样式 + error 提示）, `Badge`, `Avatar`, `Card`（default/hover 变体）, `Modal`（ESC 关闭 + 点击遮罩关闭）, `EmptyState`, `Toast`（success/error/warning/info + 自动消失）
+**UI 组件库**（`components/ui/`，barrel 导出 `index.ts`）：`Button`（primary/secondary/ghost/danger + loading）, `Input` / `Textarea`（统一样式 + error 提示）, `Badge`, `Avatar`, `Card`（default/hover 变体）, `Modal`（ESC 关闭 + 点击遮罩关闭）, `EmptyState`, `Pagination`（分页导航）, `Toast`（success/error/warning/info + 自动消失）
 
 **Chat 组件**（`components/chat/`）：`ChatPanel`（聊天面板）, `SessionList`（会话列表）, `SourceCard`（来源卡片）, `ThinkBlock`（思维链展示）
 
@@ -283,7 +291,7 @@ Next.js App Router 使用三个路由组，每组有独立 layout 和认证策�
 | `lib/api.ts` | `apiGet`/`apiPost`/`apiPatch`/`apiDelete` — JWT 自动注入 + 401 刷新重试 |
 | `lib/auth.ts` | `login()`/`logout()`/`getToken()`/`refreshToken()` — 客户端 JWT 操作 |
 | `lib/auth-context.tsx` | `AuthProvider` + `useAuth()` hook — 权限状态（不处理路由跳转） |
-| `lib/stream.ts` | `streamChat` 异步生成器 — SSE 流式解析 |
+| `lib/stream.ts` | `streamChat` 异步生成器 — SSE 流式解析（含读取超时 90s + 总超时 5min） |
 
 ## RAG 默认参数
 

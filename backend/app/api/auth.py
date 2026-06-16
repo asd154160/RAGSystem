@@ -2,7 +2,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+import re
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -66,6 +67,38 @@ class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=2, max_length=100)
     email: str = Field(..., max_length=255)
     password: str = Field(..., min_length=6, max_length=100)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", v):
+            raise ValueError("邮箱格式不正确")
+        return v
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v: str) -> str:
+        if not re.fullmatch(r"[a-zA-Z]+", v):
+            raise ValueError("用户名只能使用连续的英文字母")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if not re.fullmatch(r"[a-zA-Z0-9_]+", v):
+            raise ValueError("密码只能包含小写字母、大写字母、数字和下划线")
+        types = 0
+        if re.search(r"[a-z]", v):
+            types += 1
+        if re.search(r"[A-Z]", v):
+            types += 1
+        if re.search(r"[0-9]", v):
+            types += 1
+        if "_" in v:
+            types += 1
+        if types < 2:
+            raise ValueError("密码需至少包含小写字母、大写字母、数字、下划线中的两种")
+        return v
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)

@@ -45,8 +45,8 @@ function EnterpriseRagInner() {
 
   const loadSessions = async () => {
     try {
-      const data = await apiGet<Conversation[]>("/api/sessions?kb_type=enterprise");
-      setSessions(data);
+      const data = await apiGet<{items: Conversation[], total: number}>("/api/sessions?kb_type=enterprise");
+      setSessions(data.items || []);
     } catch {}
   };
 
@@ -70,6 +70,10 @@ function EnterpriseRagInner() {
   const loadSession = useCallback(async (id: string) => {
     try {
       const data = await apiGet<any>(`/api/sessions/${id}`);
+      // 重置流式状态，避免之前挂起的请求阻塞 UI
+      setStreaming(false);
+      setStreamContent("");
+      setStatusMsg("");
       setSessionId(id);
       setMessages(data.messages || []);
       // Extract sources from last assistant message
@@ -79,6 +83,7 @@ function EnterpriseRagInner() {
   }, []);
 
   const handleNew = () => {
+    setStreaming(false);
     setSessionId(null);
     setMessages([]);
     setSources([]);

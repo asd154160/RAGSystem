@@ -43,3 +43,20 @@ async def check_login_rate(username: str, client_ip: str) -> None:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="登录请求过多，请稍后重试",
         )
+
+
+async def check_rag_rate_limit(user_id: str) -> None:
+    """Rate limit RAG queries per user (configurable, default 30/min)"""
+    from fastapi import HTTPException, status
+
+    allowed, remaining = await check_rate_limit(
+        f"rag:user:{user_id}",
+        settings.rag_rate_limit_per_minute,
+        60,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"查询过于频繁，请稍后重试（每分钟 {settings.rag_rate_limit_per_minute} 次）",
+            headers={"X-RateLimit-Remaining": str(remaining)},
+        )

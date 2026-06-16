@@ -10,9 +10,11 @@ setup_logging()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.core.config import settings
+from app.core.middleware import RequestSizeLimitMiddleware
 from app.api.auth import router as auth_router
 from app.api.users import router as users_router
 from app.api.departments import router as departments_router
@@ -35,6 +37,8 @@ app = FastAPI(
     version="0.1.0",
 )
 
+app.add_middleware(RequestSizeLimitMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins.split(","),
@@ -42,6 +46,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 Instrumentator().instrument(app).expose(app)
 

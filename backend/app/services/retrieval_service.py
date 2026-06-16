@@ -315,7 +315,7 @@ def build_sources(results: list[dict]) -> list[dict]:
             text = r.get("parent_chunk_text") or r.get("chunk_text", "")
             merged[pid] = {
                 "document_name": r.get("document_name", ""),
-                "chunk_text": text[:800],
+                "chunk_text": text[:2000],
                 "section_title": r.get("section_title"),
                 "page_no": r.get("page_no"),
                 "score": r.get("score") or r.get("rrf_score", 0),

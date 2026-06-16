@@ -2,6 +2,7 @@
 import uuid
 import json
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.core.security import get_current_user
+from app.core.rate_limit import check_rag_rate_limit
 from app.db.session import AsyncSession, get_db
 from app.db.models import User
 from app.db.models.conversation import ChatSession, ChatMessage, RagAnswerSource
@@ -50,7 +52,7 @@ async def _save_session(
         )
         db.add(session)
     else:
-        session.updated_at = None
+        session.updated_at = datetime.now(timezone.utc)
 
     user_msg = ChatMessage(session_id=session_id, role="user", content=question)
     db.add(user_msg)
@@ -80,6 +82,7 @@ async def chat_stream(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await check_rag_rate_limit(current_user.id)
     kb_ids = await _resolve_kb_ids(db, current_user, data.knowledge_base_ids)
     session_id = data.session_id or str(uuid.uuid4())
 
@@ -90,6 +93,9 @@ async def chat_stream(
     rrf_k = next((cfg.rrf_k for cfg in kb_configs.values()), 60)
 
     async def generate():
+        # 立即发送初始事件，防止代理超时断开连接
+        yield f":ok\n\n"
+
         if not kb_ids:
             yield f"event: done\ndata: {json.dumps({'error': '没有可用的知识库'})}\n\n"
             return
@@ -141,4 +147,12 @@ async def chat_stream(
                                 detail=f"answered: {data.question[:100]}")
         yield f"event: done\ndata: {json.dumps({'session_id': session_id, 'low_confidence': low_conf})}\n\n"
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store, no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

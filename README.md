@@ -148,9 +148,9 @@ docker compose up -d
 | milvus | 向量数据库 | 19530 |
 | postgres | 业务数据库 | 5432 |
 | redis | 限流 + 缓存 + 黑名单 + 任务队列 + 分布式锁 | 6379 |
-| backend | FastAPI 后端（已内置 GPU） | 8000 |
+| backend | FastAPI 后端（已内置 GPU，4 workers + uvloop 生产模式） | 8000 |
 | worker | 文档解析 + Embedding 异步任务（已内置 GPU） | — |
-| frontend | Next.js 前端 | 3000 |
+| frontend | Next.js 前端（生产模式 next start） | 3000 |
 | backup-cron | 定时备份（PostgreSQL + MinIO + Milvus） | — |
 
 > **纯 CPU 运行**：删除 `docker-compose.yml` 中 `backend` 和 `worker` 的 `deploy.resources.reservations.devices` 块，并将 `backend/app/services/rerank_service.py` 第 24 行的 `use_fp16=True` 改为 `use_fp16=False`。
@@ -186,8 +186,9 @@ docker compose exec backend PYTHONPATH=/app python app/db/seed.py
 ```bash
 docker compose up -d                         # 启动全部服务（已内置 GPU，需 nvidia-container-toolkit）
 docker compose up -d --build backend worker  # 代码变更后重建（含依赖变更时使用）
-docker compose restart backend               # 快速重启后端（volume 挂载，代码即改即生效）
-docker compose restart frontend              # 重启前端（新增页面时需重启）
+docker compose restart backend               # 快速重启后端（生产模式无 reload，代码变更后需重启）
+docker compose restart frontend              # 重启前端（生产模式 next start，代码变更后需先 rebuild）
+docker compose exec frontend sh -c "rm -rf .next && npm run build"  # 前端代码变更后重建
 docker compose ps                            # 查看服务状态
 docker compose logs backend                  # 后端日志
 docker compose logs worker                   # Worker 日志
@@ -598,7 +599,7 @@ DepartmentKBOverride(department_id, knowledge_base_id, allow|deny)
 | 管理 | 模型配置 | DB 存储 LLM 配置，支持多 provider，API Key 加密 |
 | 运维 | 监控指标 | 今日调用/平均延迟/p95/低置信度/错误数，5s 自动刷新 |
 | 运维 | RAG 评测 | 数据集 + 评测运行，逐题 Embedding 语义评分 + 展开查看期望vs实际回答，自动轮询 |
-| 运维 | 限流 | Redis 登录限流（5次/min/用户，20次/min/IP） |
+| 运维 | 限流 | Redis 限流：登录（5次/min/用户，20次/min/IP）+ RAG 查询（30次/min/用户，可配置） |
 
 ---
 
@@ -607,6 +608,8 @@ DepartmentKBOverride(department_id, knowledge_base_id, allow|deny)
 ### 安全
 - 生产环境务必修改 `.env` 中 `JWT_SECRET_KEY`（可随机生成：`openssl rand -hex 32`）
 - LLM API Key 在 DB `model_configs` 表中加密存储，`.env` 中的 Key 仅用于开发
+- 后端 ASGI 中间件强制请求体大小限制（默认 10MB，通过 `MAX_REQUEST_BODY_SIZE` 配置），文件上传路径自动豁免
+- RAG 查询默认每用户每分钟限流 30 次（通过 `RAG_RATE_LIMIT_PER_MINUTE` 配置）
 
 ### 模型
 - 模型文件约 3GB，首次下载需耐心等待
@@ -615,8 +618,9 @@ DepartmentKBOverride(department_id, knowledge_base_id, allow|deny)
 
 ### Docker
 
-- `backend` 和 `frontend` 挂载源码目录，代码改动即改即生效（新增前端页面需重启 `docker compose restart frontend`）
+- `backend` 和 `frontend` 挂载源码目录。backend 生产模式（4 workers + uvloop），代码改动需 `docker compose restart backend`。frontend 生产模式（`next build` + `next start`），代码改动需先重建（`rm -rf .next && npm run build`）再重启
 - `.env` 变更后需重建容器：`docker compose up -d --force-recreate backend worker`
+- **Entrypoint**（`entrypoint.sh`）自动下载模型并检测 CPU 核数设置 `--workers`（上限 4），可通过 `docker-compose.yml` 的 `command` 手动覆盖
 - **PyTorch** 从官方 index 下载对应 CUDA 版本的 wheel（Dockerfile 中配置，40 系及以下用 cu124，50 系需改为 cu126）
 - Docker Desktop 需在 Settings → Resources → WSL Integration 中启用 GPU 支持
 - Worker 内存建议 4GB+（bge-m3 模型加载需约 2GB VRAM）

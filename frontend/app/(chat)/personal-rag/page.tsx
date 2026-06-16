@@ -122,14 +122,18 @@ function PersonalRagInner() {
 
   const loadSessions = async () => {
     try {
-      const data = await apiGet<Conversation[]>("/api/sessions?kb_type=personal");
-      setSessions(data);
+      const data = await apiGet<{items: Conversation[], total: number}>("/api/sessions?kb_type=personal");
+      setSessions(data.items || []);
     } catch {}
   };
 
   const loadSession = useCallback(async (id: string) => {
     try {
       const data = await apiGet<any>(`/api/sessions/${id}`);
+      // 重置流式状态，避免之前挂起的请求阻塞 UI
+      setStreaming(false);
+      setStreamContent("");
+      setStatusMsg("");
       setSessionId(id);
       setMessages(data.messages || []);
       const last = data.messages?.filter((m: any) => m.role === "assistant").pop();
@@ -138,6 +142,7 @@ function PersonalRagInner() {
   }, []);
 
   const handleNew = () => {
+    setStreaming(false);
     setSessionId(null);
     setMessages([]);
     setSources([]);

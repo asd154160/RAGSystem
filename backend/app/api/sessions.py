@@ -1,6 +1,6 @@
 """会话 API — 会话列表、详情、消息历史"""
-from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from app.core.security import get_current_user
@@ -15,6 +15,8 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 async def list_sessions(
     kb_type: str | None = None,
     user_id: str | None = None,
+    limit: int = Query(default=50, le=200),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -31,10 +33,14 @@ async def list_sessions(
 
     if kb_type:
         q = q.where(ChatSession.kb_type == kb_type)
-    q = q.order_by(ChatSession.updated_at.desc())
+
+    count_q = select(func.count()).select_from(q.subquery())
+    total = (await db.execute(count_q)).scalar()
+
+    q = q.order_by(ChatSession.updated_at.desc()).offset(offset).limit(limit)
     result = await db.execute(q)
     sessions = result.scalars().all()
-    return [
+    items = [
         {
             "id": s.id,
             "title": s.title or "新对话",
@@ -45,6 +51,7 @@ async def list_sessions(
         }
         for s in sessions
     ]
+    return {"items": items, "total": total}
 
 
 @router.get("/{session_id}")

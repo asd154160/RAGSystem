@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Pagination } from "@/components/ui/pagination";
 
 interface Session {
   id: string;
@@ -38,23 +39,32 @@ interface Message {
   }[];
 }
 
+const PAGE_SIZE = 8;
+
 export default function SessionsPage() {
   const searchParams = useSearchParams();
   const highlightSessionId = searchParams.get("session_id");
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(highlightSessionId);
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [loadingMessages, setLoadingMessages] = useState(false);
 
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async (p: number) => {
     setLoading(true);
-    try { setSessions(await apiGet<Session[]>("/api/sessions")); } catch {}
+    try {
+      const offset = (p - 1) * PAGE_SIZE;
+      const data = await apiGet<{ items: Session[]; total: number }>(`/api/sessions?limit=${PAGE_SIZE}&offset=${offset}`);
+      setSessions(data.items);
+      setTotal(data.total);
+    } catch {}
     setLoading(false);
-  };
+  }, []);
 
-  useEffect(() => { loadSessions(); }, []);
+  useEffect(() => { loadSessions(page); }, [page, loadSessions]);
 
   useEffect(() => {
     if (highlightSessionId) {
@@ -227,6 +237,10 @@ export default function SessionsPage() {
           <EmptyState icon={MessageSquare} title="暂无会话记录" />
         )}
       </div>
+
+      {sessions.length > 0 && (
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={setPage} />
+      )}
     </div>
   );
 }

@@ -75,7 +75,7 @@ function SourceItem({
         </button>
       </div>
       {expanded && (
-        <p className="mt-2 rounded bg-gray-50 p-2 text-xs leading-relaxed text-gray-600 max-h-40 overflow-y-auto">
+        <p className="mt-2 rounded bg-gray-50 p-2 text-xs leading-relaxed text-gray-600 max-h-60 overflow-y-auto">
           {source.chunk_text}
         </p>
       )}

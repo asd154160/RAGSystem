@@ -42,4 +42,13 @@ download_model "BAAI/bge-reranker-v2-m3" "bge-reranker-v2-m3"
 
 echo "[entrypoint] All models ready."
 
+# Auto-detect CPU core count for uvicorn workers (capped at 4 for container deployments)
+if ! echo "$@" | grep -q -- '--workers'; then
+    NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+    # Cap workers at 4: nproc returns host CPU count in Docker, which can over-provision DB connections
+    NPROC=$(( NPROC > 4 ? 4 : NPROC ))
+    echo "[entrypoint] Auto-detected $NPROC CPU cores, setting --workers $NPROC"
+    set -- "$@" --workers "$NPROC"
+fi
+
 exec "$@"

@@ -1,13 +1,11 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { login } from "@/lib/auth";
 import { LogIn } from "lucide-react";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -19,7 +17,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login({ username, password });
-      router.push("/dashboard");
+      window.location.href = "/dashboard";
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");
     } finally {

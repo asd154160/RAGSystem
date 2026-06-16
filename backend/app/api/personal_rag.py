@@ -3,6 +3,7 @@ import hashlib
 import uuid
 import json
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import StreamingResponse, Response
@@ -12,6 +13,7 @@ from sqlalchemy import select, delete as sql_delete, text
 from sqlalchemy.orm import selectinload
 
 from app.core.security import get_current_user
+from app.core.rate_limit import check_rag_rate_limit
 from app.db.session import AsyncSession, get_db
 from app.db.models import User, KnowledgeBase
 from app.db.models.conversation import ChatSession, ChatMessage, RagAnswerSource
@@ -162,6 +164,8 @@ async def _save_session(
             title=question[:30], knowledge_base_ids=json.dumps(kb_ids),
         )
         db.add(session)
+    else:
+        session.updated_at = datetime.now(timezone.utc)
 
     user_msg = ChatMessage(session_id=session_id, role="user", content=question)
     db.add(user_msg)
@@ -196,6 +200,7 @@ async def chat_stream(
             yield f"event: done\ndata: {json.dumps({'error': '个人RAG功能未开启'})}\n\n"
         return StreamingResponse(gen(), media_type="text/event-stream")
 
+    await check_rag_rate_limit(current_user.id)
     kb_ids = await _resolve_personal_kb_ids(db, current_user)
     session_id = data.session_id or str(uuid.uuid4())
 
@@ -206,6 +211,9 @@ async def chat_stream(
     rrf_k = next((cfg.rrf_k for cfg in kb_configs.values()), 60)
 
     async def generate():
+        # 立即发送初始事件，防止代理超时断开连接
+        yield f":ok\n\n"
+
         if not kb_ids:
             yield f"event: done\ndata: {json.dumps({'error': '暂无个人知识库'})}\n\n"
             return
@@ -257,7 +265,15 @@ async def chat_stream(
                                 detail=f"answered: {data.question[:100]}")
         yield f"event: done\ndata: {json.dumps({'session_id': session_id, 'low_confidence': low_conf})}\n\n"
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store, no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.post("/documents/upload")
