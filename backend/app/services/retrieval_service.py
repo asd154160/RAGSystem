@@ -1,6 +1,7 @@
 """
 混合检索服务：Milvus 向量检索 + PostgreSQL pg_trgm + RRF 融合 + Rerank + Parent Chunk 回填
 """
+import asyncio
 import logging
 
 from sqlalchemy import text, select
@@ -170,13 +171,20 @@ async def hybrid_search(
 
     vec_results = []
     if embedding_service.is_available():
-        try:
-            q_emb = embedding_service.embed_query(query)
-            vec_results = milvus_service.search(q_emb, top_k=top_k * 2, knowledge_base_ids=knowledge_base_ids)
-        except Exception as e:
-            logger.warning(f"Vector search failed: {e}")
+        def _do_vector_search() -> list[dict]:
+            try:
+                q_emb = embedding_service.embed_query(query)
+                return milvus_service.search(q_emb, top_k=top_k * 2, knowledge_base_ids=knowledge_base_ids)
+            except Exception as e:
+                logger.warning(f"Vector search failed: {e}")
+                return []
 
-    pg_results = await _pg_keyword_search(query, knowledge_base_ids, top_k=top_k * 2)
+        vec_results, pg_results = await asyncio.gather(
+            asyncio.to_thread(_do_vector_search),
+            _pg_keyword_search(query, knowledge_base_ids, top_k=top_k * 2),
+        )
+    else:
+        pg_results = await _pg_keyword_search(query, knowledge_base_ids, top_k=top_k * 2)
 
     if vec_results and pg_results:
         results = _rrf_fusion(vec_results, pg_results, k=rrf_k)

@@ -1,17 +1,19 @@
 "use client";
 
-import { Plus, MessageCircle, Trash2 } from "lucide-react";
+import { Plus, MessageCircle, Trash2, Loader2 } from "lucide-react";
 import { Conversation } from "@/types";
 
 interface Props {
   sessions: Conversation[];
   activeId: string | null;
+  streamingSessionId: string | null;
+  unreadIds: Set<string>;
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
 }
 
-export default function SessionList({ sessions, activeId, onSelect, onNew, onDelete }: Props) {
+export default function SessionList({ sessions, activeId, streamingSessionId, unreadIds, onSelect, onNew, onDelete }: Props) {
   return (
     <div className="flex h-full flex-col border-r bg-[var(--color-background)]">
       <div className="flex items-center justify-between border-b px-3 py-3">
@@ -39,7 +41,13 @@ export default function SessionList({ sessions, activeId, onSelect, onNew, onDel
               }`}
             >
               <div className="flex min-w-0 items-center gap-2">
-                <MessageCircle size={14} className="shrink-0" />
+                {streamingSessionId === s.id ? (
+                  <Loader2 size={14} className="shrink-0 animate-spin text-blue-500" />
+                ) : unreadIds.has(s.id) ? (
+                  <span className="shrink-0 w-2 h-2 rounded-full bg-red-500" />
+                ) : (
+                  <MessageCircle size={14} className="shrink-0" />
+                )}
                 <span className="truncate">{s.title || "新对话"}</span>
               </div>
               <button

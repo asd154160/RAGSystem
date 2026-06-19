@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, UserPlus } from "lucide-react";
+import { getApiBase } from "@/lib/api-base";
 
 const USERNAME_RE = /^[a-zA-Z]+$/;
 const PASSWORD_CHARS_RE = /^[a-zA-Z0-9_]+$/;
@@ -51,7 +52,7 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/auth/register`, {
+      const res = await fetch(`${getApiBase()}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: form.username, email: form.email, password: form.password }),

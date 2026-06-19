@@ -1,5 +1,6 @@
 import logging
 import warnings
+from contextlib import asynccontextmanager
 
 # pymilvus still uses pkg_resources, suppress its deprecation warning
 warnings.filterwarnings("ignore", message=".*pkg_resources.*", category=UserWarning)
@@ -9,6 +10,7 @@ from app.core.logging_config import setup_logging
 setup_logging()
 
 from fastapi import FastAPI
+from app.services import embedding_service, rerank_service
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -31,10 +33,23 @@ from app.api.monitor import router as monitor_router
 
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Preloading bge-m3 embedding model...")
+    emb_ok = embedding_service.is_available()
+    logger.info("bge-m3 preload result: %s", "loaded" if emb_ok else "FAILED")
+    logger.info("Preloading bge-reranker-v2-m3 rerank model...")
+    rerank_ok = rerank_service.is_available()
+    logger.info("bge-reranker-v2-m3 preload result: %s", "loaded" if rerank_ok else "FAILED")
+    yield
+
+
 app = FastAPI(
     title="企业级 RAG 系统",
     description="Enterprise RAG System API",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(RequestSizeLimitMiddleware)

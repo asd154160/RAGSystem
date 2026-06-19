@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { apiGet, apiPost, apiDelete } from "@/lib/api";
@@ -20,6 +20,19 @@ function EnterpriseRagInner() {
   const [sessions, setSessions] = useState<Conversation[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  // 跟踪当前活跃的流式请求所属的会话（null = 无活跃流）
+  const activeStreamSessionRef = useRef<string | null>(null);
+  // 存储后台流式内容，用于用户切回时恢复
+  const streamContentRef = useRef("");
+  // 跟踪当前显示的会话 ID，供流式循环闭包内读取最新值
+  const currentSessionIdRef = useRef<string | null>(null);
+  useEffect(() => { currentSessionIdRef.current = sessionId; }, [sessionId]);
+
+  // 流式会话 ID（用于 UI 渲染，如列表中的加载动画）
+  const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null);
+  // 有未读消息的会话 ID 集合（后台流完成后标记，点击进入后清除）
+  const [unreadSessions, setUnreadSessions] = useState<Set<string>>(new Set());
 
   // Streaming state
   const [streaming, setStreaming] = useState(false);
@@ -70,15 +83,27 @@ function EnterpriseRagInner() {
   const loadSession = useCallback(async (id: string) => {
     try {
       const data = await apiGet<any>(`/api/sessions/${id}`);
-      // 重置流式状态，避免之前挂起的请求阻塞 UI
-      setStreaming(false);
-      setStreamContent("");
-      setStatusMsg("");
       setSessionId(id);
       setMessages(data.messages || []);
-      // Extract sources from last assistant message
       const last = data.messages?.filter((m: any) => m.role === "assistant").pop();
       setSources(last?.sources || []);
+      // 清除该会话的未读标记
+      setUnreadSessions(prev => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      // 如果切换到的会话有活跃流，恢复流式状态；否则重置
+      if (activeStreamSessionRef.current === id) {
+        setStreaming(true);
+        setStreamContent(streamContentRef.current);
+        setStatusMsg("");
+      } else {
+        setStreaming(false);
+        setStreamContent("");
+        setStatusMsg("");
+      }
     } catch {}
   }, []);
 
@@ -98,6 +123,11 @@ function EnterpriseRagInner() {
   };
 
   const handleSend = async (question: string) => {
+    const sid = sessionId; // 捕获发起流时的会话 ID
+    activeStreamSessionRef.current = sid;
+    streamContentRef.current = "";
+    setStreamingSessionId(sid);
+
     setStreaming(true);
     setStreamContent("");
     setStatusMsg("正在处理...");
@@ -115,6 +145,8 @@ function EnterpriseRagInner() {
     let finalSources: RagSource[] = [];
     let finalSessionId = sessionId;
 
+    const isActive = () => currentSessionIdRef.current === sid;
+
     try {
       for await (const event of streamChat("/api/enterprise-rag/chat/stream", {
         question,
@@ -124,49 +156,69 @@ function EnterpriseRagInner() {
       })) {
         switch (event.type) {
           case "status":
-            setStatusMsg(event.message || "");
+            if (isActive()) setStatusMsg(event.message || "");
             break;
           case "answer":
             fullContent += event.content || "";
-            setStreamContent(fullContent);
-            setStatusMsg("");
+            streamContentRef.current = fullContent;
+            if (isActive()) {
+              setStreamContent(fullContent);
+              setStatusMsg("");
+            }
             break;
           case "sources":
             finalSources = (event as any).content || [];
-            setSources(finalSources);
+            if (isActive()) setSources(finalSources);
             break;
           case "done":
             if (event.session_id) finalSessionId = event.session_id;
             break;
           case "error":
-            setStatusMsg("");
             fullContent = `错误: ${event.content || event.error || "未知错误"}`;
-            setStreamContent(fullContent);
+            streamContentRef.current = fullContent;
+            if (isActive()) {
+              setStatusMsg("");
+              setStreamContent(fullContent);
+            }
             break;
         }
       }
     } catch (e: any) {
       fullContent = `请求失败: ${e.message}`;
-      setStreamContent(fullContent);
+      streamContentRef.current = fullContent;
+      if (isActive()) setStreamContent(fullContent);
     }
 
-    // Save assistant message
-    const assistantMsg: ChatMessage = {
-      id: (Date.now() + 1).toString(),
-      role: "assistant",
-      content: fullContent || "无响应",
-      sources: finalSources,
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, assistantMsg]);
+    // 仅当用户仍在发起流时的会话中时，才追加消息到当前列表
+    if (isActive()) {
+      const assistantMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: fullContent || "无响应",
+        sources: finalSources,
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+      setStreaming(false);
+      setStatusMsg("");
+    }
 
-    setStreaming(false);
-    setStatusMsg("");
+    activeStreamSessionRef.current = null;
+    streamContentRef.current = "";
+    setStreamingSessionId(null);
 
     // Update session
-    if (finalSessionId && finalSessionId !== sessionId) {
+    if (isActive() && finalSessionId && finalSessionId !== sessionId) {
       setSessionId(finalSessionId);
       loadSessions();
+    }
+    // 即使用户已切走，也刷新会话列表并标记未读（后端已保存消息）
+    if (!isActive()) {
+      loadSessions();
+      const resultId = finalSessionId || sid;
+      if (resultId) {
+        setUnreadSessions(prev => new Set(prev).add(resultId));
+      }
     }
   };
 
@@ -210,6 +262,8 @@ function EnterpriseRagInner() {
           <SessionList
             sessions={sessions}
             activeId={sessionId}
+            streamingSessionId={streamingSessionId}
+            unreadIds={unreadSessions}
             onSelect={loadSession}
             onNew={handleNew}
             onDelete={handleDelete}

@@ -277,7 +277,7 @@ RAGSystem/
 │   │   ├── ui/                         # UI 组件库（Button/Input/Modal/Toast/Card/Badge 等）
 │   │   ├── chat/                       # ChatPanel / SessionList / SourceCard / ThinkBlock
 │   │   └── layout/                     # AdminLayout / ProtectedRoute
-│   ├── lib/                            # api.ts / auth.ts / auth-context.tsx / stream.ts
+│   ├── lib/                            # api-base.ts / api.ts / auth.ts / auth-context.tsx / stream.ts
 │   └── types/                          # TypeScript 类型定义
 ├── scripts/                            # 部署脚本 + 备份/恢复/迁移
 ├── models/                             # bge-m3 + bge-reranker-v2-m3 模型文件（gitignore）
@@ -419,7 +419,7 @@ Parent-Child Chunking（700/1600 tokens，chunk_hash 指纹）
   ↓
 Redis 检索缓存 — 命中(key=md5(query+kb_ids+top_k))直接返回，TTL 5min
   ↓ (未命中)
-多路召回：Milvus 向量检索(COSINE) + PostgreSQL pg_trgm 全文检索(word_similarity+section_title)
+多路召回（并发）：Milvus 向量检索(COSINE) + PostgreSQL pg_trgm 全文检索(word_similarity+section_title)
   ↓
 RRF 融合排序（k=60）
   ↓
@@ -587,17 +587,18 @@ DepartmentKBOverride(department_id, knowledge_base_id, allow|deny)
 | 检索 | Rerank 精排 | bge-reranker-v2-m3 Cross-encoder |
 | 检索 | 置信度检测 | score < 0.005（rerank）/ 0.1（无rerank）→ 低置信度标记 |
 | 检索 | Parent Chunk 回填 | 子块检索结果自动加载父块上下文 |
-| 问答 | 流式 SSE | token-by-token 实时输出，5 种事件类型 |
-| 问答 | 多轮对话 | 自动加载最近 10 条会话历史，支持连续追问 |
+| 问答 | 流式 SSE | token-by-token 实时输出，5 种事件类型；localhost 直连后端绕过代理缓冲 |
+| 问答 | 多轮对话 | 自动加载最近 10 条会话历史，支持连续追问；切换会话不中断后台流 |
 | 问答 | Think Block | `<think>` 思考过程自动折叠，可展开查看 |
 | 问答 | 来源引用 | `[编号] 文档名` 带 hover 详情卡片 |
+| 问答 | 会话指示器 | 处理中显示旋转动画，完成后红点未读提示，点击进入自动清除 |
 | 权限 | 系统 RBAC | 5 角色 × 9 权限，前后端双重检查 |
 | 权限 | KB 级权限 | 按用户/部门 allow/deny 控制知识库查询访问，用户级优先于部门级 |
 | 权限 | 部门连接 | User FK + M2M 双路部门归属 |
 | 管理 | 会话管理 | 创建/列表/删除/反馈(like/dislike) |
 | 管理 | 审计日志 | 全量操作记录，按 action/user_id 过滤 |
 | 管理 | 模型配置 | DB 存储 LLM 配置，支持多 provider，API Key 加密 |
-| 运维 | 监控指标 | 今日调用/平均延迟/p95/低置信度/错误数，5s 自动刷新 |
+| 运维 | 监控指标 | 今日调用/P95延迟/p95/低置信度/错误数，5s 自动刷新 |
 | 运维 | RAG 评测 | 数据集 + 评测运行，逐题 Embedding 语义评分 + 展开查看期望vs实际回答，自动轮询 |
 | 运维 | 限流 | Redis 限流：登录（5次/min/用户，20次/min/IP）+ RAG 查询（30次/min/用户，可配置） |
 
@@ -654,5 +655,6 @@ DepartmentKBOverride(department_id, knowledge_base_id, allow|deny)
 
 ### 监控
 - 监控指标存储在进程内存中，重启后清零
+- 指标卡展示：今日调用、P95 延迟、低置信度计数、错误数；耗时明细显示各节点 avg + p95
 - Backend 和 Worker 是独立进程，各自维护指标。当前监控 API 仅暴露 Backend 指标
 - 前端每 5s 自动轮询刷新

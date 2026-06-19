@@ -1,6 +1,7 @@
 import type { LoginRequest, LoginResponse } from "@/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+import { getApiBase } from "./api-base";
+const API_BASE = getApiBase();
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;

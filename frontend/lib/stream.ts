@@ -1,4 +1,5 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+import { getApiBase } from "./api-base";
+const API_BASE = getApiBase();
 
 export interface SSEEvent {
   type: "status" | "answer" | "sources" | "done" | "error";

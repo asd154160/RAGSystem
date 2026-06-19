@@ -152,12 +152,13 @@ docker compose exec backend python scripts/migrate_milvus_schema.py --force     
 - **LLM 配置**：DB 中 `model_configs` 表的 `is_default=true` 模型优先于 `.env`。无 DB 配置时回退 `.env` 的 `LLM_API_KEY`
 - **KB 级权限**：`UserKBOverride` + `DepartmentKBOverride`（allow/deny）控制用户/部门对特定 KB 的查询权限。优先级：用户级 > 部门级 > 默认允许。多部门中任一 allow 即放行。默认所有登录用户可查询所有企业 KB，Admin/SuperAdmin 始终可见全部。`kb_access.py` 提供 `get_accessible_kb_ids()` 查询访问列表。
 - **DB session 双模式**：`db/session.py` 提供 `async_session`（FastAPI 异步）和 `sync_session`（worker 同步），互不干扰
-- **前端 API 代理**：`next.config.js` 内置 `rewrites` 将 `/api/*` 代理到 `http://backend:8000`，容器内无需直连后端端口。`NEXT_PUBLIC_API_URL` 设为空（`?? ""`）时走代理，设为 `http://localhost:8000` 时直连后端（本地开发）。
+- **前端 API 代理**：`next.config.js` 内置 `rewrites` 将 `/api/*` 代理到 `http://backend:8000`。`lib/api-base.ts` 提供 `getApiBase()` 运行时检测：`localhost` 时直连 `http://localhost:8000`（绕过 Next.js 代理缓冲，保证 SSE 实时流式），非 localhost 返回空串走同域代理（兼容公网部署）。`NEXT_PUBLIC_API_URL` 环境变量可覆盖此行为。
 - **CORS 配置**：后端 `cors_origins` 从 `.env` 的 `CORS_ORIGINS` 读取（逗号分隔，默认 `http://localhost:3000`），生产部署时需添加外部域名（如 `https://rag.asd154160.icu`）。
 - **RAG 限流**：`rate_limit.py` 提供 `check_rag_rate_limit()`，对每位用户的 RAG 查询进行频率限制（默认 30次/分钟，可通过 `RAG_RATE_LIMIT_PER_MINUTE` 配置）。Enterprise 和 Personal RAG 的 SSE 端点均已接入。
 - **请求体大小限制**：`middleware.py` 的 `RequestSizeLimitMiddleware` 在 ASGI 层拦截超大请求（默认 10MB，通过 `MAX_REQUEST_BODY_SIZE` 配置）。文件上传路径 `/api/personal-rag/documents/` 和 `/api/documents/` 豁免，由端点自行校验文件大小。
 - **Entrypoint workers 自动检测**：`entrypoint.sh` 在未显式指定 `--workers` 时自动检测 CPU 核数，上限 4（Docker 容器中 `nproc` 返回宿主机核数，需限制防止连接池溢出）。可通过 `docker-compose.yml` 的 `command` 手动覆盖。
 - **注册验证**：用户名仅限连续英文字母（`[a-zA-Z]+`），密码仅限 `[a-zA-Z0-9_]+` 且须包含至少两种字符类型。前后端验证规则一致。
+- **流式会话隔离**：切换会话时不中断后台流，流式内容绑定到发起流时的会话 ID。通过 `activeStreamSessionRef` + `currentSessionIdRef` 守卫 UI 更新，切回时从 `streamContentRef` 恢复进度。流完成时若用户已切走则标记未读红点，点击进入后清除。
 
 ## 数据模型
 
@@ -243,9 +244,10 @@ Redis 检索缓存命中? → 命中直接返回 / 未命中→ Milvus向量(is_
 | `backend/app/core/middleware.py` | `RequestSizeLimitMiddleware` — ASGI 层请求体大小拦截（默认 10MB，豁免上传路径） |
 | `backend/app/db/session.py` | `async_session`（asyncpg）+ `sync_session`（psycopg2），连接池参数从 config 读取 |
 | `backend/entrypoint.sh` | 模型下载 + workers 自动检测（上限 4） |
+| `backend/app/main.py` | FastAPI lifespan 预加载 bge-m3 + bge-reranker-v2-m3，消除首次请求冷启动延迟 |
 | `backend/Dockerfile` | Docker 构建：PyTorch 官方 index (cu124) 安装 → 清华镜像安装其他依赖 |
 | `backend/app/workers/main.py` | 异步 Worker——轮询 document_processing_tasks，parse→chunk→embed→index |
-| `backend/app/services/retrieval_service.py` | 混合检索：Milvus 向量 + pg_trgm 关键词 + RRF 融合 + DB 二次校验（validate_retrieval_results） |
+| `backend/app/services/retrieval_service.py` | 混合检索：Milvus 向量（asyncio.to_thread）+ pg_trgm 关键词（异步）并发执行 → RRF 融合 + DB 二次校验 |
 | `backend/app/services/langgraph_workflow.py` | LangGraph StateGraph（纯流式，单次 astream 执行）：retrieve→rerank→check→expand→LLM 流式生成 |
 | `backend/app/services/chunking.py` | 统一 Parent-Child 分块策略（企业/个人 RAG 共用） |
 | `backend/app/services/kb_access.py` | KB 查询权限：`get_accessible_kb_ids()` 基于 `manage_knowledge_base` 权限 + DepartmentKBOverride + UserKBOverride（优先级递减） |
@@ -282,16 +284,17 @@ Next.js App Router 使用三个路由组，每组有独立 layout 和认证策�
 
 **UI 组件库**（`components/ui/`，barrel 导出 `index.ts`）：`Button`（primary/secondary/ghost/danger + loading）, `Input` / `Textarea`（统一样式 + error 提示）, `Badge`, `Avatar`, `Card`（default/hover 变体）, `Modal`（ESC 关闭 + 点击遮罩关闭）, `EmptyState`, `Pagination`（分页导航）, `Toast`（success/error/warning/info + 自动消失）
 
-**Chat 组件**（`components/chat/`）：`ChatPanel`（聊天面板）, `SessionList`（会话列表）, `SourceCard`（来源卡片）, `ThinkBlock`（思维链展示）
+**Chat 组件**（`components/chat/`）：`ChatPanel`（聊天面板）, `SessionList`（会话列表，支持流式加载动画 + 未读红点）, `SourceCard`（来源卡片）, `ThinkBlock`（思维链展示）
 
 ## 前端 lib 模块
 
 | 文件 | 用途 |
 |------|------|
+| `lib/api-base.ts` | 运行时 API base URL 检测 — localhost 直连后端绕过 Next.js 代理缓冲保证 SSE 实时流式，公网走同域 |
 | `lib/api.ts` | `apiGet`/`apiPost`/`apiPatch`/`apiDelete` — JWT 自动注入 + 401 刷新重试 |
 | `lib/auth.ts` | `login()`/`logout()`/`getToken()`/`refreshToken()` — 客户端 JWT 操作 |
 | `lib/auth-context.tsx` | `AuthProvider` + `useAuth()` hook — 权限状态（不处理路由跳转） |
-| `lib/stream.ts` | `streamChat` 异步生成器 — SSE 流式解析（含读取超时 90s + 总超时 5min） |
+| `lib/stream.ts` | `streamChat` 异步生成器 — SSE 流式解析（含读取超时 90s + 总超时 5min，支持 AbortSignal） |
 
 ## RAG 默认参数
 

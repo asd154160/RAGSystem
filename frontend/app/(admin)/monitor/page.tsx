@@ -73,7 +73,7 @@ export default function MonitorPage() {
       {/* Metric Cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4 mb-8">
         <MetricCard icon={<Zap size={20} />} label="今日调用" value={c.rag_query_total || 0} color="blue" colors={iconColors} />
-        <MetricCard icon={<Clock size={20} />} label="平均延迟" value={`${a.rag_total_ms_avg_ms?.toFixed(0) || "-"} ms`} color="green" colors={iconColors} />
+        <MetricCard icon={<Clock size={20} />} label="P95 延迟" value={`${a.rag_total_ms_p95_ms?.toFixed(0) || "-"} ms`} color="green" colors={iconColors} />
         <MetricCard icon={<AlertTriangle size={20} />} label="低置信度" value={c.rag_query_low_confidence || 0} color="orange" colors={iconColors} />
         <MetricCard icon={<Activity size={20} />} label="错误数" value={c.rag_query_error || 0} color="red" colors={iconColors} />
       </div>
