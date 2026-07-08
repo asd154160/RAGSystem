@@ -6,14 +6,14 @@ import { Conversation } from "@/types";
 interface Props {
   sessions: Conversation[];
   activeId: string | null;
-  streamingSessionId: string | null;
+  streamingSessionIds: Set<string>;
   unreadIds: Set<string>;
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
 }
 
-export default function SessionList({ sessions, activeId, streamingSessionId, unreadIds, onSelect, onNew, onDelete }: Props) {
+export default function SessionList({ sessions, activeId, streamingSessionIds, unreadIds, onSelect, onNew, onDelete }: Props) {
   return (
     <div className="flex h-full flex-col border-r bg-[var(--color-background)]">
       <div className="flex items-center justify-between border-b px-3 py-3">
@@ -41,7 +41,7 @@ export default function SessionList({ sessions, activeId, streamingSessionId, un
               }`}
             >
               <div className="flex min-w-0 items-center gap-2">
-                {streamingSessionId === s.id ? (
+                {streamingSessionIds.has(s.id) ? (
                   <Loader2 size={14} className="shrink-0 animate-spin text-blue-500" />
                 ) : unreadIds.has(s.id) ? (
                   <span className="shrink-0 w-2 h-2 rounded-full bg-red-500" />

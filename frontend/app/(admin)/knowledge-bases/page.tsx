@@ -40,7 +40,7 @@ export default function KnowledgeBasesPage() {
   // Edit
   const [showEdit, setShowEdit] = useState(false);
   const [editingKbId, setEditingKbId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", description: "" });
+  const [editForm, setEditForm] = useState({ name: "", description: "", is_active: true });
   const [editError, setEditError] = useState("");
 
   // Override management
@@ -105,7 +105,7 @@ export default function KnowledgeBasesPage() {
 
   function openEdit(kb: KnowledgeBase) {
     setEditingKbId(kb.id);
-    setEditForm({ name: kb.name, description: kb.description || "" });
+    setEditForm({ name: kb.name, description: kb.description || "", is_active: kb.is_active });
     setEditError("");
     setShowEdit(true);
   }
@@ -118,6 +118,7 @@ export default function KnowledgeBasesPage() {
       await apiPatch(`/api/knowledge-bases/${editingKbId}`, {
         name: editForm.name.trim(),
         description: editForm.description.trim() || null,
+        is_active: editForm.is_active,
       });
       setShowEdit(false);
       setEditingKbId(null);
@@ -335,6 +336,22 @@ export default function KnowledgeBasesPage() {
         }
       >
         <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-[var(--color-text-primary)]">状态</span>
+            <button
+              type="button"
+              onClick={() => setEditForm({ ...editForm, is_active: !editForm.is_active })}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                editForm.is_active ? "bg-emerald-500" : "bg-gray-300"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${
+                  editForm.is_active ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
           <Input label="知识库名称" placeholder="请输入知识库名称"
             value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
           <Textarea label="描述" placeholder="描述（可选）" rows={3}

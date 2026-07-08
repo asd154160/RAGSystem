@@ -5,7 +5,6 @@ import { useEffect, useState, useCallback } from "react";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { Plus, Trash2, Users, UserPlus, UserX, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/input";
@@ -16,7 +15,7 @@ interface Member {
 
 interface Department {
   id: string; name: string; description: string | null;
-  parent_id: string | null; is_active: boolean; created_at: string;
+  parent_id: string | null; created_at: string;
   members: Member[]; user_count: number;
 }
 
@@ -187,7 +186,6 @@ export default function DepartmentsPage() {
               <th className="px-4 py-3 font-medium">部门名称</th>
               <th className="px-4 py-3 font-medium">描述</th>
               <th className="px-4 py-3 font-medium">成员</th>
-              <th className="px-4 py-3 font-medium">状态</th>
               <th className="px-4 py-3 font-medium">创建时间</th>
               <th className="px-4 py-3 font-medium text-right">操作</th>
             </tr>
@@ -211,11 +209,6 @@ export default function DepartmentsPage() {
                     )}
                   </button>
                 </td>
-                <td className="px-4 py-3">
-                  <Badge variant={dept.is_active ? "success" : "danger"}>
-                    {dept.is_active ? "启用" : "禁用"}
-                  </Badge>
-                </td>
                 <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">
                   {new Date(dept.created_at).toLocaleDateString("zh-CN")}
                 </td>
@@ -233,7 +226,7 @@ export default function DepartmentsPage() {
             ))}
             {departments.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+                <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                   暂无部门
                 </td>
               </tr>

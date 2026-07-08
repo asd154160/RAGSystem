@@ -37,8 +37,7 @@ async def _enrich_depts(db: AsyncSession, depts: list[Department]) -> list[dict]
         ]
         results.append({
             "id": d.id, "name": d.name, "description": d.description,
-            "parent_id": d.parent_id, "is_active": d.is_active,
-            "created_at": d.created_at,
+            "parent_id": d.parent_id, "created_at": d.created_at,
             "members": member_briefs, "user_count": user_counts.get(d.id, 0),
         })
     return results

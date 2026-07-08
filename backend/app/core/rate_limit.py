@@ -60,3 +60,26 @@ async def check_rag_rate_limit(user_id: str) -> None:
             detail=f"查询过于频繁，请稍后重试（每分钟 {settings.rag_rate_limit_per_minute} 次）",
             headers={"X-RateLimit-Remaining": str(remaining)},
         )
+
+
+async def acquire_concurrent_stream(user_id: str) -> None:
+    """Acquire a concurrent stream slot. Raises 429 if limit exceeded."""
+    from fastapi import HTTPException, status
+
+    r = await get_redis()
+    key = f"concurrent:rag:user:{user_id}"
+    current = await r.incr(key)
+    await r.expire(key, 600)
+    if current > settings.rag_max_concurrent_streams:
+        await r.decr(key)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"已达到最大并发查询数（{settings.rag_max_concurrent_streams}），请等待其他请求完成",
+        )
+
+
+async def release_concurrent_stream(user_id: str) -> None:
+    """Release a concurrent stream slot."""
+    r = await get_redis()
+    key = f"concurrent:rag:user:{user_id}"
+    await r.decr(key)

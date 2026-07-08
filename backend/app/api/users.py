@@ -166,6 +166,38 @@ async def delete_user(
     await db.commit()
 
 
+class BatchActiveRequest(BaseModel):
+    user_ids: list[str]
+    is_active: bool
+
+
+@router.patch("/batch/active")
+async def batch_set_active(
+    data: BatchActiveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("manage_user")),
+):
+    if not data.user_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_ids 不能为空")
+
+    if current_user.id in data.user_ids and not data.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能禁用自己")
+
+    result = await db.execute(select(User).where(User.id.in_(data.user_ids)))
+    users = result.scalars().all()
+
+    found_ids = {u.id for u in users}
+    missing = [uid for uid in data.user_ids if uid not in found_ids]
+    if missing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"用户不存在: {missing}")
+
+    for user in users:
+        user.is_active = data.is_active
+
+    await db.commit()
+    return {"message": f"已{'启用' if data.is_active else '禁用'} {len(users)} 个用户", "count": len(users)}
+
+
 @router.patch("/{user_id}/personal-rag", response_model=UserResponse)
 async def toggle_personal_rag(
     user_id: str,

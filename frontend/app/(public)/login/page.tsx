@@ -2,7 +2,9 @@
 
 import { useState, FormEvent } from "react";
 import Link from "next/link";
-import { login } from "@/lib/auth";
+import { login, AuthError } from "@/lib/auth";
+import { Modal } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
 import { LogIn } from "lucide-react";
 
 export default function LoginPage() {
@@ -10,6 +12,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showDisabledModal, setShowDisabledModal] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -19,7 +22,11 @@ export default function LoginPage() {
       await login({ username, password });
       window.location.href = "/dashboard";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "登录失败");
+      if (err instanceof AuthError && err.status === 403) {
+        setShowDisabledModal(true);
+      } else {
+        setError(err instanceof Error ? err.message : "登录失败");
+      }
     } finally {
       setLoading(false);
     }
@@ -104,6 +111,23 @@ export default function LoginPage() {
           </p>
         </form>
       </div>
+
+      {/* Account disabled modal */}
+      <Modal
+        open={showDisabledModal}
+        onClose={() => setShowDisabledModal(false)}
+        title="账号异常"
+        width="sm"
+        footer={
+          <div className="flex justify-end w-full">
+            <Button variant="primary" onClick={() => setShowDisabledModal(false)}>确定</Button>
+          </div>
+        }
+      >
+        <p className="text-sm text-[var(--color-text-secondary)]">
+          您的账号已被管理员禁用，请联系管理员解除限制。
+        </p>
+      </Modal>
     </div>
   );
 }

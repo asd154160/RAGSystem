@@ -3,6 +3,15 @@ import type { LoginRequest, LoginResponse } from "@/types";
 import { getApiBase } from "./api-base";
 const API_BASE = getApiBase();
 
+export class AuthError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "AuthError";
+    this.status = status;
+  }
+}
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("access_token");
@@ -62,7 +71,7 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
   if (!res.ok) {
     let detail = "登录失败";
     try { const d = await res.json(); detail = d.detail || detail; } catch {}
-    throw new Error(detail);
+    throw new AuthError(detail, res.status);
   }
   const result: LoginResponse = await res.json();
   localStorage.setItem("access_token", result.access_token);

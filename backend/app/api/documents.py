@@ -3,6 +3,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.responses import Response
+from pydantic import BaseModel
 from sqlalchemy import select, delete as sql_delete, text
 from sqlalchemy.orm import selectinload
 
@@ -509,6 +510,39 @@ async def offline_document(
     return {"message": "文档已下架"}
 
 
+@router.post("/{doc_id}/online")
+async def online_document(
+    doc_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("publish_document")),
+):
+    result = await db.execute(
+        select(Document).options(selectinload(Document.versions)).where(Document.id == doc_id)
+    )
+    doc = result.scalar_one_or_none()
+    if not doc or not doc.versions:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
+
+    if doc.status != DocStatus.offline:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有已下线的文档才能上线")
+
+    version = doc.versions[0]
+    version.status = DocStatus.published
+    version.is_active = True
+    doc.status = DocStatus.published
+
+    task = DocumentProcessingTask(
+        id=str(uuid.uuid4()),
+        document_version_id=version.id,
+        task_type=TaskType.embed,
+        status=TaskStatus.pending,
+    )
+    db.add(task)
+    await db.commit()
+
+    return {"message": "文档已重新上线，正在重建索引"}
+
+
 @router.post("/{doc_id}/retry")
 async def retry_document(
     doc_id: str,
@@ -621,3 +655,113 @@ async def delete_document(
     # Core delete: bypasses ORM, DB CASCADE handles versions/tasks/chunks
     await db.execute(sql_delete(Document).where(Document.id == doc_id))
     await db.commit()
+
+
+# ── Batch endpoints ──
+
+class BatchDocumentRequest(BaseModel):
+    document_ids: list[str]
+
+
+@router.post("/batch/publish")
+async def batch_publish(
+    data: BatchDocumentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("publish_document")),
+):
+    if not data.document_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="document_ids 不能为空")
+
+    result = await db.execute(
+        select(Document).options(selectinload(Document.versions)).where(Document.id.in_(data.document_ids))
+    )
+    docs = result.scalars().all()
+
+    published = 0
+    skipped = 0
+    for doc in docs:
+        if doc.status != DocStatus.approved:
+            skipped += 1
+            continue
+        doc.status = DocStatus.published
+        for version in doc.versions:
+            version.status = DocStatus.published
+        task = DocumentProcessingTask(
+            id=str(uuid.uuid4()),
+            document_version_id=doc.versions[0].id,
+            task_type=TaskType.embed,
+            status=TaskStatus.pending,
+        )
+        db.add(task)
+        published += 1
+
+    await db.commit()
+    return {"message": f"已发布 {published} 个文档", "published": published, "skipped": skipped}
+
+
+@router.post("/batch/offline")
+async def batch_offline(
+    data: BatchDocumentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("publish_document")),
+):
+    if not data.document_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="document_ids 不能为空")
+
+    result = await db.execute(
+        select(Document).options(selectinload(Document.versions)).where(Document.id.in_(data.document_ids))
+    )
+    docs = result.scalars().all()
+
+    offlined = 0
+    skipped = 0
+    for doc in docs:
+        if doc.status != DocStatus.published:
+            skipped += 1
+            continue
+        doc.status = DocStatus.offline
+        for version in doc.versions:
+            version.status = DocStatus.offline
+            version.is_active = False
+        offlined += 1
+        try:
+            milvus_service.delete_by_document_id(doc.id)
+        except Exception:
+            pass
+
+    await db.commit()
+    return {"message": f"已下线 {offlined} 个文档", "offlined": offlined, "skipped": skipped}
+
+
+@router.delete("/batch", status_code=status.HTTP_200_OK)
+async def batch_delete(
+    data: BatchDocumentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("upload_document")),
+):
+    if not data.document_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="document_ids 不能为空")
+
+    # MinIO cleanup
+    path_result = await db.execute(
+        text("SELECT file_path FROM document_versions WHERE document_id = ANY(:ids)"),
+        {"ids": data.document_ids},
+    )
+    for (fp,) in path_result.fetchall():
+        try:
+            minio_service.delete_file(fp)
+        except Exception:
+            pass
+
+    # Milvus cleanup
+    for doc_id in data.document_ids:
+        try:
+            milvus_service.delete_by_document_id(doc_id)
+        except Exception:
+            pass
+
+    # DB cascade delete
+    await db.execute(sql_delete(Document).where(Document.id.in_(data.document_ids)))
+    await db.commit()
+
+    return {"message": f"已删除 {len(data.document_ids)} 个文档", "count": len(data.document_ids)}

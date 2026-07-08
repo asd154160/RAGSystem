@@ -211,7 +211,7 @@ async def rerank_results(
 
     try:
         documents = [r["chunk_text"] for r in results]
-        scored = rerank_service.rerank(query, documents, top_n=top_n)
+        scored = await asyncio.to_thread(rerank_service.rerank, query, documents, top_n=top_n)
 
         reranked = []
         for s in scored:

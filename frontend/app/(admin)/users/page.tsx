@@ -31,8 +31,11 @@ export default function UsersPage() {
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     email: "", password: "", department_id: "", role_ids: [] as string[],
+    is_active: true,
   });
   const [editError, setEditError] = useState("");
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const fetchData = useCallback(async () => {
     try {
@@ -86,6 +89,7 @@ export default function UsersPage() {
       password: "",
       department_id: user.department_id || "",
       role_ids: user.roles?.map(r => r.id) || [],
+      is_active: user.is_active,
     });
     setEditError("");
     setShowEdit(true);
@@ -98,6 +102,7 @@ export default function UsersPage() {
         role_ids: editForm.role_ids,
         department_id: editForm.department_id || null,
         email: editForm.email || null,
+        is_active: editForm.is_active,
       };
       if (editForm.password) body.password = editForm.password;
       await apiPatch(`/api/users/${editingUserId}`, body);
@@ -155,6 +160,37 @@ export default function UsersPage() {
     }));
   };
 
+  // ── Batch selection ──
+
+  function toggleSelectAll() {
+    if (selectedIds.size === users.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(users.map(u => u.id)));
+    }
+  }
+
+  function toggleSelect(id: string) {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelectedIds(next);
+  }
+
+  async function handleBatchActive(is_active: boolean) {
+    const label = is_active ? "启用" : "禁用";
+    if (!confirm(`确认批量${label} ${selectedIds.size} 个用户？`)) return;
+    try {
+      await apiPatch("/api/users/batch/active", {
+        user_ids: Array.from(selectedIds),
+        is_active,
+      });
+      setSelectedIds(new Set());
+      setSuccessMsg(`已批量${label} ${selectedIds.size} 个用户`);
+      setTimeout(() => setSuccessMsg(""), 3000);
+      fetchData();
+    } catch (err) { alert(err instanceof Error ? err.message : "操作失败"); }
+  }
+
   // ── Loading ──
 
   if (loading) {
@@ -180,11 +216,30 @@ export default function UsersPage() {
         </div>
       )}
 
+      {/* Batch toolbar */}
+      {selectedIds.size > 0 && (
+        <div className="mb-3 flex items-center gap-3 rounded-lg border border-[var(--color-accent)]/20 bg-[var(--color-accent-soft)] px-4 py-2.5">
+          <span className="text-sm font-medium text-[var(--color-accent)]">已选择 {selectedIds.size} 项</span>
+          <div className="flex gap-2 ml-auto">
+            <Button variant="primary" size="sm" onClick={() => handleBatchActive(true)}>批量启用</Button>
+            <Button variant="danger" size="sm" onClick={() => handleBatchActive(false)}>批量禁用</Button>
+          </div>
+        </div>
+      )}
+
       {/* User table */}
       <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-white shadow-sm">
         <table className="w-full text-sm">
           <thead className="border-b border-[var(--color-border)] bg-white text-left text-[var(--color-text-secondary)]">
             <tr>
+              <th className="px-4 py-3 w-10">
+                <input
+                  type="checkbox"
+                  checked={users.length > 0 && selectedIds.size === users.length}
+                  onChange={toggleSelectAll}
+                  className="h-4 w-4 rounded border-[var(--color-border)] accent-[var(--color-accent)]"
+                />
+              </th>
               <th className="px-4 py-3 font-medium">用户名</th>
               <th className="px-4 py-3 font-medium">邮箱</th>
               <th className="px-4 py-3 font-medium">部门</th>
@@ -196,6 +251,14 @@ export default function UsersPage() {
           <tbody className="divide-y divide-[var(--color-border)] text-[var(--color-text-primary)]">
             {users.map((user) => (
               <tr key={user.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(user.id)}
+                    onChange={() => toggleSelect(user.id)}
+                    className="h-4 w-4 rounded border-[var(--color-border)] accent-[var(--color-accent)]"
+                  />
+                </td>
                 <td className="px-4 py-3 font-medium">{user.username}</td>
                 <td className="px-4 py-3">
                   <span className="text-xs text-[var(--color-text-secondary)]">{user.email || "-"}</span>
@@ -239,7 +302,7 @@ export default function UsersPage() {
             ))}
             {users.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+                <td colSpan={7} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                   暂无用户
                 </td>
               </tr>
@@ -314,6 +377,22 @@ export default function UsersPage() {
         }
       >
         <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-[var(--color-text-primary)]">账号状态</span>
+            <button
+              type="button"
+              onClick={() => setEditForm({ ...editForm, is_active: !editForm.is_active })}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                editForm.is_active ? "bg-emerald-500" : "bg-gray-300"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${
+                  editForm.is_active ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
           <Input label="邮箱" type="email" placeholder="请输入邮箱"
             value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
           <Input label="密码" type="password" placeholder="留空则不修改"

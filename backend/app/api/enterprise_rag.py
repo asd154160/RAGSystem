@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.core.security import get_current_user
-from app.core.rate_limit import check_rag_rate_limit
+from app.core.rate_limit import check_rag_rate_limit, acquire_concurrent_stream, release_concurrent_stream
 from app.db.session import AsyncSession, get_db
 from app.db.models import User
 from app.db.models.conversation import ChatSession, ChatMessage, RagAnswerSource
@@ -83,6 +83,7 @@ async def chat_stream(
     current_user: User = Depends(get_current_user),
 ):
     await check_rag_rate_limit(current_user.id)
+    await acquire_concurrent_stream(current_user.id)
     kb_ids = await _resolve_kb_ids(db, current_user, data.knowledge_base_ids)
     session_id = data.session_id or str(uuid.uuid4())
 
@@ -93,59 +94,62 @@ async def chat_stream(
     rrf_k = next((cfg.rrf_k for cfg in kb_configs.values()), 60)
 
     async def generate():
-        # 立即发送初始事件，防止代理超时断开连接
-        yield f":ok\n\n"
-
-        if not kb_ids:
-            yield f"event: done\ndata: {json.dumps({'error': '没有可用的知识库'})}\n\n"
-            return
-
-        # Fetch conversation history for multi-turn context
-        history = []
-        if data.session_id:
-            hist_result = await db.execute(
-                select(ChatMessage).where(
-                    ChatMessage.session_id == data.session_id
-                ).order_by(ChatMessage.created_at.asc()).limit(20)
-            )
-            history = [{"role": m.role, "content": m.content} for m in hist_result.scalars().all()]
-
-        full_answer = ""
-        all_sources = []
-        low_conf = False
-
-        async for event in run_rag_stream(
-            question=data.question, kb_ids=kb_ids, top_k=data.top_k,
-            enable_rerank=enable_rerank,
-            rerank_top_n=rerank_top_n, score_threshold=score_threshold,
-            rrf_k=rrf_k,
-            user_id=current_user.id, history=history,
-        ):
-            etype = event.get("type", "")
-            if etype == "status":
-                yield f"event: status\ndata: {json.dumps(event)}\n\n"
-            elif etype == "answer":
-                full_answer += event.get("content", "")
-                yield f"event: answer\ndata: {json.dumps(event)}\n\n"
-            elif etype == "sources":
-                all_sources = event.get("content", [])
-                yield f"event: sources\ndata: {json.dumps(event)}\n\n"
-            elif etype == "done":
-                low_conf = event.get("low_confidence", False)
-            elif etype == "error":
-                yield f"event: error\ndata: {json.dumps(event)}\n\n"
-
         try:
-            await _save_session(
-                db, current_user.id, session_id, data.question,
-                full_answer, all_sources, low_conf, kb_ids,
-            )
-        except Exception as e:
-            logger.error(f"Session save error: {e}")
+            # 立即发送初始事件，防止代理超时断开连接
+            yield f":ok\n\n"
 
-        await audit_service.log(db, "rag_query", current_user.id, current_user.username,
-                                detail=f"answered: {data.question[:100]}")
-        yield f"event: done\ndata: {json.dumps({'session_id': session_id, 'low_confidence': low_conf})}\n\n"
+            if not kb_ids:
+                yield f"event: done\ndata: {json.dumps({'error': '没有可用的知识库'})}\n\n"
+                return
+
+            # Fetch conversation history for multi-turn context
+            history = []
+            if data.session_id:
+                hist_result = await db.execute(
+                    select(ChatMessage).where(
+                        ChatMessage.session_id == data.session_id
+                    ).order_by(ChatMessage.created_at.asc()).limit(20)
+                )
+                history = [{"role": m.role, "content": m.content} for m in hist_result.scalars().all()]
+
+            full_answer = ""
+            all_sources = []
+            low_conf = False
+
+            async for event in run_rag_stream(
+                question=data.question, kb_ids=kb_ids, top_k=data.top_k,
+                enable_rerank=enable_rerank,
+                rerank_top_n=rerank_top_n, score_threshold=score_threshold,
+                rrf_k=rrf_k,
+                user_id=current_user.id, history=history,
+            ):
+                etype = event.get("type", "")
+                if etype == "status":
+                    yield f"event: status\ndata: {json.dumps(event)}\n\n"
+                elif etype == "answer":
+                    full_answer += event.get("content", "")
+                    yield f"event: answer\ndata: {json.dumps(event)}\n\n"
+                elif etype == "sources":
+                    all_sources = event.get("content", [])
+                    yield f"event: sources\ndata: {json.dumps(event)}\n\n"
+                elif etype == "done":
+                    low_conf = event.get("low_confidence", False)
+                elif etype == "error":
+                    yield f"event: error\ndata: {json.dumps(event)}\n\n"
+
+            try:
+                await _save_session(
+                    db, current_user.id, session_id, data.question,
+                    full_answer, all_sources, low_conf, kb_ids,
+                )
+            except Exception as e:
+                logger.error(f"Session save error: {e}")
+
+            await audit_service.log(db, "rag_query", current_user.id, current_user.username,
+                                    detail=f"answered: {data.question[:100]}")
+            yield f"event: done\ndata: {json.dumps({'session_id': session_id, 'low_confidence': low_conf})}\n\n"
+        finally:
+            await release_concurrent_stream(current_user.id)
 
     return StreamingResponse(
         generate(),

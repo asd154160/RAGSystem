@@ -310,8 +310,9 @@ RAGSystem/
 | GET/PATCH/DELETE | `/api/users/{id}` | Admin | 用户详情 / 更新（含角色、部门） / 删除 |
 | PUT | `/api/users/{id}/password` | 本人或 Admin | 修改密码 |
 | PATCH | `/api/users/{id}/personal-rag` | Admin | 切换个人 RAG 开关 |
+| PATCH | `/api/users/batch/active` | manage_user | 批量启用/禁用用户 |
 | GET/POST | `/api/departments` | 需登录 / Admin | 部门列表（含成员数） / 创建 |
-| GET/PATCH/DELETE | `/api/departments/{id}` | 需登录 / Admin | 部门详情 / 更新 / 删除 |
+| GET/PATCH/DELETE | `/api/departments/{id}` | 需登录 / Admin | 部门详情（含 M2M 成员和 user_count）/ 更新 / 删除 |
 | POST/DELETE | `/api/departments/{id}/members` | 需登录 | 添加 M2M 成员 / 移除成员 |
 | GET | `/api/roles` | 需登录 | 角色列表 |
 | GET | `/api/roles/permissions` | 需登录 | 系统权限码列表 |
@@ -334,8 +335,12 @@ RAGSystem/
 | GET | `/api/documents/{id}/chunks` | 需登录 | Chunk 列表 |
 | POST | `/api/documents/{id}/review` | review_document | 审核（approve/reject） |
 | POST | `/api/documents/{id}/publish` | publish_document | 发布（激活 chunk + 创建 embed 任务） |
-| POST | `/api/documents/{id}/offline` | 需登录 | 下架 |
-| POST | `/api/documents/{id}/retry` | 需登录 | 重试处理 |
+| POST | `/api/documents/{id}/offline` | publish_document | 下架（停用 chunk + 清理 Milvus） |
+| POST | `/api/documents/{id}/online` | publish_document | 重新上线（恢复 published + 重建索引） |
+| POST | `/api/documents/{id}/retry` | upload_document | 重试失败/驳回文档 |
+| POST | `/api/documents/batch/publish` | publish_document | 批量发布 |
+| POST | `/api/documents/batch/offline` | publish_document | 批量下线 |
+| DELETE | `/api/documents/batch` | upload_document | 批量删除（含 MinIO + Milvus 清理） |
 
 ### RAG 问答与会话
 
@@ -396,7 +401,7 @@ Parent-Child Chunking（700/1600 tokens，chunk_hash 指纹）
   │   Worker Embedding → Milvus 入库 → published → 可检索
   │
   └─ kb.type == "enterprise" → pending_review → Reviewer 审核
-            ├─ reject → 打回
+            ├─ reject → 打回（可 retry 重新上传）
             └─ approve → 发布（is_active=true）
                               ↓
                       Worker Embedding（bge-m3，hash 匹配复用旧向量）
@@ -404,6 +409,10 @@ Parent-Child Chunking（700/1600 tokens，chunk_hash 指纹）
                       Contextual Retrieval（LLM 生成 chunk 上下文描述，固定环节）
                               ↓
                       Milvus 向量入库 → published → 可检索
+                              ↓
+                        offline（下架，停用 chunk + 清理 Milvus）
+                              ↓
+                        online（重新上线，重建索引回到 published）
 ```
 
 关键特性：

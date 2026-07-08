@@ -21,16 +21,20 @@ function EnterpriseRagInner() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
-  // 跟踪当前活跃的流式请求所属的会话（null = 无活跃流）
-  const activeStreamSessionRef = useRef<string | null>(null);
-  // 存储后台流式内容，用于用户切回时恢复
-  const streamContentRef = useRef("");
+  // 跟踪所有活跃流式请求的会话 ID 集合
+  const activeStreamSessionsRef = useRef<Set<string>>(new Set());
+  // 每个会话的后台流式内容（key=sessionId），用于用户切回时恢复
+  const streamContentMapRef = useRef<Map<string, string>>(new Map());
   // 跟踪当前显示的会话 ID，供流式循环闭包内读取最新值
   const currentSessionIdRef = useRef<string | null>(null);
   useEffect(() => { currentSessionIdRef.current = sessionId; }, [sessionId]);
+  // 新对话计数器，用于隔离多个"新对话"视图的流
+  const newViewCounterRef = useRef(0);
+  // 每个活跃流的用户问题，用于切回时补回消息列表（后端流完成后才保存）
+  const streamQuestionMapRef = useRef<Map<string, string>>(new Map());
 
-  // 流式会话 ID（用于 UI 渲染，如列表中的加载动画）
-  const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null);
+  // 流式会话 ID 集合（用于 UI 渲染，SessionList 中显示旋转动画）
+  const [streamingSessionIds, setStreamingSessionIds] = useState<Set<string>>(new Set());
   // 有未读消息的会话 ID 集合（后台流完成后标记，点击进入后清除）
   const [unreadSessions, setUnreadSessions] = useState<Set<string>>(new Set());
 
@@ -95,9 +99,16 @@ function EnterpriseRagInner() {
         return next;
       });
       // 如果切换到的会话有活跃流，恢复流式状态；否则重置
-      if (activeStreamSessionRef.current === id) {
+      if (activeStreamSessionsRef.current.has(id)) {
+        // 确保用户问题在消息列表中（后端流完成后才保存，此时可能尚未入库）
+        let msgs = data.messages || [];
+        const question = streamQuestionMapRef.current.get(id);
+        if (question && !msgs.some((m: any) => m.role === "user" && m.content === question)) {
+          msgs = [...msgs, { id: `local_${Date.now()}`, role: "user" as const, content: question, created_at: new Date().toISOString() }];
+        }
+        setMessages(msgs);
         setStreaming(true);
-        setStreamContent(streamContentRef.current);
+        setStreamContent(streamContentMapRef.current.get(id) || "");
         setStatusMsg("");
       } else {
         setStreaming(false);
@@ -108,6 +119,7 @@ function EnterpriseRagInner() {
   }, []);
 
   const handleNew = () => {
+    newViewCounterRef.current += 1;
     setStreaming(false);
     setSessionId(null);
     setMessages([]);
@@ -123,14 +135,35 @@ function EnterpriseRagInner() {
   };
 
   const handleSend = async (question: string) => {
-    const sid = sessionId; // 捕获发起流时的会话 ID
-    activeStreamSessionRef.current = sid;
-    streamContentRef.current = "";
-    setStreamingSessionId(sid);
+    const sid = sessionId;
+    const streamKey = sid || `__new__${newViewCounterRef.current}`;
+    const myGeneration = newViewCounterRef.current;
 
-    setStreaming(true);
-    setStreamContent("");
-    setStatusMsg("正在处理...");
+    // 全局并发限制
+    const MAX_CONCURRENT = 3;
+    if (activeStreamSessionsRef.current.size >= MAX_CONCURRENT) {
+      alert(`已达到最大并发数（${MAX_CONCURRENT}个），请等待其他请求完成`);
+      return;
+    }
+    // 同一会话已有活跃流
+    if (activeStreamSessionsRef.current.has(streamKey)) return;
+
+    // 注册此流
+    activeStreamSessionsRef.current.add(streamKey);
+    streamContentMapRef.current.set(streamKey, "");
+    streamQuestionMapRef.current.set(streamKey, question);
+    setStreamingSessionIds(prev => new Set(prev).add(streamKey));
+
+    const isActive = () => {
+      if (sid) return currentSessionIdRef.current === sid;
+      return currentSessionIdRef.current === null && newViewCounterRef.current === myGeneration;
+    };
+
+    if (isActive()) {
+      setStreaming(true);
+      setStreamContent("");
+      setStatusMsg("正在处理...");
+    }
 
     // Add user message locally
     const userMsg: ChatMessage = {
@@ -145,8 +178,6 @@ function EnterpriseRagInner() {
     let finalSources: RagSource[] = [];
     let finalSessionId = sessionId;
 
-    const isActive = () => currentSessionIdRef.current === sid;
-
     try {
       for await (const event of streamChat("/api/enterprise-rag/chat/stream", {
         question,
@@ -160,7 +191,7 @@ function EnterpriseRagInner() {
             break;
           case "answer":
             fullContent += event.content || "";
-            streamContentRef.current = fullContent;
+            streamContentMapRef.current.set(streamKey, fullContent);
             if (isActive()) {
               setStreamContent(fullContent);
               setStatusMsg("");
@@ -175,7 +206,7 @@ function EnterpriseRagInner() {
             break;
           case "error":
             fullContent = `错误: ${event.content || event.error || "未知错误"}`;
-            streamContentRef.current = fullContent;
+            streamContentMapRef.current.set(streamKey, fullContent);
             if (isActive()) {
               setStatusMsg("");
               setStreamContent(fullContent);
@@ -185,7 +216,7 @@ function EnterpriseRagInner() {
       }
     } catch (e: any) {
       fullContent = `请求失败: ${e.message}`;
-      streamContentRef.current = fullContent;
+      streamContentMapRef.current.set(streamKey, fullContent);
       if (isActive()) setStreamContent(fullContent);
     }
 
@@ -203,9 +234,15 @@ function EnterpriseRagInner() {
       setStatusMsg("");
     }
 
-    activeStreamSessionRef.current = null;
-    streamContentRef.current = "";
-    setStreamingSessionId(null);
+    // 清理此流的追踪
+    activeStreamSessionsRef.current.delete(streamKey);
+    streamContentMapRef.current.delete(streamKey);
+    streamQuestionMapRef.current.delete(streamKey);
+    setStreamingSessionIds(prev => {
+      const next = new Set(prev);
+      next.delete(streamKey);
+      return next;
+    });
 
     // Update session
     if (isActive() && finalSessionId && finalSessionId !== sessionId) {
@@ -262,7 +299,7 @@ function EnterpriseRagInner() {
           <SessionList
             sessions={sessions}
             activeId={sessionId}
-            streamingSessionId={streamingSessionId}
+            streamingSessionIds={streamingSessionIds}
             unreadIds={unreadSessions}
             onSelect={loadSession}
             onNew={handleNew}

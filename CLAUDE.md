@@ -167,7 +167,7 @@ docker compose exec backend python scripts/migrate_milvus_schema.py --force     
 | 模型 | 用途 |
 |------|------|
 | `User` / `Role` / `Permission` | RBAC 三表，User↔Role↔Permission 多对多 |
-| `Department` | 部门树（ABAC），user↔department 多对一 + 多对多（`department_members`） |
+| `Department` | 部门树（ABAC），user↔department 多对一 + 多对多（`department_members`），无 `is_active` 字段 |
 | `KnowledgeBase` | 知识库（含 `kb_type`: `enterprise` / `personal`） |
 | `UserKBOverride` / `DepartmentKBOverride` | KB 查询权限覆盖：用户级/部门级 allow/deny |
 | `Document` / `DocumentVersion` / `DocumentProcessingTask` | 文档生命周期 + 版本 + 异步任务 |
@@ -191,6 +191,9 @@ Access Token (30 min) + Refresh Token (7 days)，JWT Bearer。前端 `api.ts` �
 ## 文档生命周期
 
 `uploaded → parsing → parsed → pending_review → approved → published（可检索）`
+`published → offline → online（重建索引回到 published）`
+`failed / rejected → retry → uploaded`
+
 只有 `published` 且 `is_active=true` 的 chunk 参与检索。
 
 ## Enterprise RAG vs Personal RAG
@@ -255,6 +258,10 @@ Redis 检索缓存命中? → 命中直接返回 / 未命中→ Milvus向量(is_
 | `backend/app/api/personal_rag.py` | 个人 RAG SSE 问答 + 文件上传/管理（含自动 KB 创建） |
 | `backend/app/api/sessions.py` | 会话 CRUD + 用户反馈（enterprise/personal kb_type 强制用户隔离） |
 | `backend/app/api/model_configs.py` | 模型配置 CRUD（需 `manage_model_config`） |
+| `backend/app/api/users.py` | 用户 CRUD + 密码修改 + 个人RAG开关 + 批量启用/禁用 (`PATCH /batch/active`) |
+| `backend/app/api/departments.py` | 部门 CRUD + M2M 成员管理（无 `is_active`） |
+| `backend/app/api/documents.py` | 文档上传/列表/审核/发布/下架/上线/重试 + 批量操作 (`POST /batch/publish`, `/batch/offline`, `DELETE /batch`) |
+| `frontend/lib/auth.ts` | `login()`/`logout()`/`getToken()`/`refreshToken()` — 客户端 JWT 操作，含 `AuthError`（携带 HTTP 状态码，登录页据此判断弹窗） |
 | `frontend/lib/auth-context.tsx` | 前端权限上下文（`useAuth` hook） |
 | `frontend/lib/api.ts` | `apiGet`/`apiPost`/`apiPatch`/`apiDelete`（含 JWT 自动注入 + 401 刷新重试） |
 | `frontend/lib/stream.ts` | SSE 流式解析（`streamChat` 异步生成器） |
